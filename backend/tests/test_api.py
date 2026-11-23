@@ -219,3 +219,63 @@ def test_user_listing_is_organization_scoped(client: TestClient) -> None:
     users = client.get("/api/v1/users")
     assert users.status_code == 200
     assert [user["email"] for user in users.json()] == ["admin.b@example.com"]
+
+
+def test_software_license_inventory_crud_and_seat_validation(client: TestClient) -> None:
+    payload = {
+        "name": "Office Suite",
+        "publisher": "Example Publisher",
+        "version": "2026",
+        "license_type": "subscription",
+        "license_reference": "CONTRACT-001",
+        "seats_total": 25,
+        "seats_used": 8,
+        "purchased_at": "2026-01-01",
+        "expires_at": "2027-01-01",
+    }
+    created = client.post("/api/v1/software-licenses", json=payload)
+    assert created.status_code == 201
+    license_id = created.json()["id"]
+
+    listed = client.get("/api/v1/software-licenses")
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+
+    invalid_update = client.patch(
+        f"/api/v1/software-licenses/{license_id}",
+        json={"seats_total": 4},
+    )
+    assert invalid_update.status_code == 422
+
+    updated = client.patch(
+        f"/api/v1/software-licenses/{license_id}",
+        json={"seats_used": 10},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["seats_used"] == 10
+
+    duplicate = client.post("/api/v1/software-licenses", json=payload)
+    assert duplicate.status_code == 409
+
+    assert client.delete(f"/api/v1/software-licenses/{license_id}").status_code == 204
+
+
+def test_software_license_access_is_tenant_scoped_and_viewer_read_only(client: TestClient) -> None:
+    payload = {
+        "name": "Design Tool",
+        "license_type": "perpetual",
+        "license_reference": "DESIGN-REF-001",
+        "seats_total": 3,
+        "seats_used": 1,
+    }
+    created = client.post("/api/v1/software-licenses", json=payload)
+    assert created.status_code == 201
+    license_id = created.json()["id"]
+
+    use_role(client, "viewer")
+    assert client.get("/api/v1/software-licenses").status_code == 200
+    assert client.post("/api/v1/software-licenses", json=payload).status_code == 403
+
+    use_role(client, "other_admin")
+    assert client.get("/api/v1/software-licenses").json() == []
+    assert client.get(f"/api/v1/software-licenses/{license_id}").status_code == 404
