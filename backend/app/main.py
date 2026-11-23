@@ -1510,17 +1510,28 @@ def update_maintenance_request(
         ))
         if assignee is None:
             raise HTTPException(status_code=422, detail="Assignee must be an active user in this organization")
-    if changes.get("status") == MaintenanceStatus.resolved:
-        request_record.resolved_at = datetime.now(timezone.utc)
+    resolved_at = request_record.resolved_at
+    if changes.get("status") == MaintenanceStatus.resolved and resolved_at is None:
+        resolved_at = datetime.now(timezone.utc)
     elif changes.get("status") in (MaintenanceStatus.open, MaintenanceStatus.in_progress):
-        request_record.resolved_at = None
-    for field, value in changes.items():
-        setattr(request_record, field, value)
-    record_audit(
-        session, user, "maintenance_request.updated", "maintenance_request",
-        request_record.id, {"fields": sorted(changes)},
-    )
-    session.commit()
+        resolved_at = None
+    resolved_at_changed = resolved_at != request_record.resolved_at
+    changes = {
+        field: value for field, value in changes.items()
+        if getattr(request_record, field) != value
+    }
+    audit_fields = set(changes)
+    if resolved_at_changed:
+        audit_fields.add("resolved_at")
+        request_record.resolved_at = resolved_at
+    if changes or resolved_at_changed:
+        for field, value in changes.items():
+            setattr(request_record, field, value)
+        record_audit(
+            session, user, "maintenance_request.updated", "maintenance_request",
+            request_record.id, {"fields": sorted(audit_fields)},
+        )
+        session.commit()
     session.refresh(request_record)
     return request_record
 
@@ -1625,18 +1636,23 @@ def update_software_license(
     expires_at = changes.get("expires_at", license_record.expires_at)
     if purchased_at and expires_at and expires_at < purchased_at:
         raise HTTPException(status_code=422, detail="expires_at cannot be earlier than purchased_at")
-    for field, value in changes.items():
-        setattr(license_record, field, value)
-    try:
-        session.flush()
-    except IntegrityError:
-        session.rollback()
-        raise HTTPException(status_code=409, detail="License reference already exists")
-    record_audit(
-        session, user, "software_license.updated", "software_license", license_record.id,
-        {"fields": sorted(changes)},
-    )
-    session.commit()
+    changes = {
+        field: value for field, value in changes.items()
+        if getattr(license_record, field) != value
+    }
+    if changes:
+        for field, value in changes.items():
+            setattr(license_record, field, value)
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="License reference already exists")
+        record_audit(
+            session, user, "software_license.updated", "software_license", license_record.id,
+            {"fields": sorted(changes)},
+        )
+        session.commit()
     session.refresh(license_record)
     return license_record
 
