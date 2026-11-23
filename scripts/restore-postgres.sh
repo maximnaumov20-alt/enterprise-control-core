@@ -56,8 +56,8 @@ fi
 docker compose exec -T db pg_restore --list < "$restore_input" >/dev/null
 
 echo "Restoring into database '$target_database'. Existing objects may be replaced."
-docker compose exec -T db pg_restore \\
-  --clean --if-exists --no-owner --no-acl --exit-on-error --single-transaction \\
+docker compose exec -T db pg_restore \
+  --clean --if-exists --no-owner --no-acl --exit-on-error --single-transaction \
   -U ecc -d ecc < "$restore_input"
 
 echo "Restore command completed. Verify application health and data before resuming use."
