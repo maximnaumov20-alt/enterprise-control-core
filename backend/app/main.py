@@ -1395,11 +1395,14 @@ def update_employee(
             setattr(employee, field, value)
         try:
             session.flush()
+            record_audit(session, user, "employee.updated", "employee", employee.id, {"fields": sorted(changes)})
+            session.commit()
         except IntegrityError:
             session.rollback()
-            raise HTTPException(status_code=409, detail="Employee number or email already exists")
-        record_audit(session, user, "employee.updated", "employee", employee.id, {"fields": sorted(changes)})
-        session.commit()
+            raise HTTPException(
+                status_code=409,
+                detail="Employee update conflicts with current organization records",
+            )
     session.refresh(employee)
     return employee
 
