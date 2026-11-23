@@ -38,12 +38,25 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   api:
     build: .
     environment:
       DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/ecc
       ECC_SECRET_KEY: ${ECC_SECRET_KEY:?Set ECC_SECRET_KEY in .env}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-20}
+      REDIS_URL: redis://redis:6379/0
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
+      AUTH_RATE_LIMIT_WINDOW_SECONDS: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:-60}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     expose:
       - "8000"
