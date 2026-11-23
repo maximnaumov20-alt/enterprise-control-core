@@ -1726,12 +1726,19 @@ def delete_software_license(
     ))
     if license_record is None:
         raise HTTPException(status_code=404, detail="Software license not found")
-    record_audit(
-        session, user, "software_license.deleted", "software_license", license_record.id,
-        {"name": license_record.name},
-    )
-    session.delete(license_record)
-    session.commit()
+    try:
+        record_audit(
+            session, user, "software_license.deleted", "software_license", license_record.id,
+            {"name": license_record.name},
+        )
+        session.delete(license_record)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Software license deletion conflicts with current organization records",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
