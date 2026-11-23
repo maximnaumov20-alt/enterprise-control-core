@@ -87,3 +87,25 @@ jobs:
             --severity CRITICAL \
             --exit-code 1 \
             ecc-frontend:security
+
+      - name: Generate CycloneDX SBOMs for container images
+        run: |
+          mkdir -p sbom
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            anchore/syft:v1.18.1 docker:ecc-api:security -o cyclonedx-json \
+            > sbom/ecc-api.cdx.json
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            anchore/syft:v1.18.1 docker:ecc-frontend:security -o cyclonedx-json \
+            > sbom/ecc-frontend.cdx.json
+          test -s sbom/ecc-api.cdx.json
+          test -s sbom/ecc-frontend.cdx.json
+
+      - name: Upload container SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecc-container-sboms
+          path: sbom/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
