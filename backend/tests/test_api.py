@@ -410,8 +410,8 @@ def test_asset_csv_import_aggregate_audit_conflict_rolls_back_batch(
     client: TestClient, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = (
-        "name,asset_tag,category\\n"
-        "Imported laptop,CSV-AUDIT-ROLLBACK-001,Laptop\\n"
+        "name,asset_tag,category\n"
+        "Imported laptop,CSV-AUDIT-ROLLBACK-001,Laptop\n"
     )
     existing_audit_ids = {
         event["id"] for event in client.get("/api/v1/audit-events").json()
