@@ -1452,12 +1452,19 @@ def create_maintenance_request(
         priority=payload.priority,
     )
     session.add(request_record)
-    session.flush()
-    record_audit(
-        session, user, "maintenance_request.created", "maintenance_request",
-        request_record.id, {"asset_id": asset.id, "priority": request_record.priority.value},
-    )
-    session.commit()
+    try:
+        session.flush()
+        record_audit(
+            session, user, "maintenance_request.created", "maintenance_request",
+            request_record.id, {"asset_id": asset.id, "priority": request_record.priority.value},
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Maintenance request conflicts with current asset or user records",
+        )
     session.refresh(request_record)
     return request_record
 

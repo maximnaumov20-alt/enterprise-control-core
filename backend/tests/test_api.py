@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 
 from app import main
@@ -1510,3 +1511,34 @@ def test_noop_software_license_update_does_not_create_audit_event(client: TestCl
 
     after = client.get("/api/v1/audit-events")
     assert [event["id"] for event in after.json()] == before_ids
+
+def test_maintenance_create_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Managed server", "asset_tag": "MAINT-ROLLBACK-001", "category": "Server"},
+    )
+    assert asset.status_code == 201
+
+    original_record_audit = main.record_audit
+
+    def fail_maintenance_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "maintenance_request.created":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_maintenance_audit)
+    response = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset.json()["id"],
+            "title": "Inspect server",
+            "description": "Verify transaction rollback after an integrity conflict",
+        },
+    )
+
+    assert response.status_code == 409
+    assert client.get("/api/v1/maintenance-requests").json() == []
+    actions = [event["action"] for event in client.get("/api/v1/audit-events").json()]
+    assert "maintenance_request.created" not in actions
