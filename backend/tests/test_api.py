@@ -1947,3 +1947,71 @@ def test_software_license_delete_integrity_error_rolls_back_without_audit(
     }
     assert after_audit_ids == existing_audit_ids
 
+
+
+def test_department_create_audit_integrity_error_rolls_back_department(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_department_create_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "department.created":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_department_create_audit)
+    response = client.post(
+        "/api/v1/departments",
+        json={"name": "Rollback Department", "code": "ROLLBACK"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Department creation conflicts with current organization records"
+    )
+    assert client.get("/api/v1/departments").json() == []
+    assert {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    } == existing_audit_ids
+
+
+def test_department_update_audit_integrity_error_rolls_back_changes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/departments",
+        json={"name": "Original Department", "code": "ORIGINAL"},
+    )
+    assert created.status_code == 201
+    department_id = created.json()["id"]
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_department_update_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "department.updated":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_department_update_audit)
+    response = client.patch(
+        f"/api/v1/departments/{department_id}",
+        json={"name": "Partially Updated Department"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Department update conflicts with current organization records"
+    )
+    stored = client.get("/api/v1/departments")
+    assert stored.status_code == 200
+    department = next(item for item in stored.json() if item["id"] == department_id)
+    assert department["name"] == "Original Department"
+    assert department["code"] == "ORIGINAL"
+    assert {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    } == existing_audit_ids
