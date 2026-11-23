@@ -704,3 +704,97 @@ def test_disabling_and_reenabling_user_revokes_old_access_token(client: TestClie
 
     client.headers.update({"Authorization": f"Bearer {editor_token}"})
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient) -> None:
+    # Create related records in Company A.
+    department_a = client.post(
+        "/api/v1/departments", json={"name": "A Operations", "code": "A-OPS"}
+    ).json()
+    employee_a = client.post(
+        "/api/v1/employees",
+        json={"employee_number": "A-EMP-01", "full_name": "Employee A",
+              "department_id": department_a["id"]},
+    ).json()
+    license_a = client.post(
+        "/api/v1/software-licenses",
+        json={"name": "A License", "license_type": "perpetual",
+              "license_reference": "A-LIC-01", "seats_total": 5, "seats_used": 1},
+    ).json()
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "A Server", "asset_tag": "A-SRV-01", "category": "Server"},
+    ).json()
+    maintenance_a = client.post(
+        "/api/v1/maintenance-requests",
+        json={"asset_id": asset_a["id"], "title": "A maintenance",
+              "description": "Company A maintenance request"},
+    ).json()
+
+    # Create equivalent records in Company B.
+    use_role(client, "other_admin")
+    department_b = client.post(
+        "/api/v1/departments", json={"name": "B Operations", "code": "B-OPS"}
+    ).json()
+    employee_b = client.post(
+        "/api/v1/employees",
+        json={"employee_number": "B-EMP-01", "full_name": "Employee B",
+              "department_id": department_b["id"]},
+    ).json()
+    license_b = client.post(
+        "/api/v1/software-licenses",
+        json={"name": "B License", "license_type": "perpetual",
+              "license_reference": "B-LIC-01", "seats_total": 7, "seats_used": 2},
+    ).json()
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "B Server", "asset_tag": "B-SRV-01", "category": "Server"},
+    ).json()
+    maintenance_b = client.post(
+        "/api/v1/maintenance-requests",
+        json={"asset_id": asset_b["id"], "title": "B maintenance",
+              "description": "Company B maintenance request"},
+    ).json()
+
+    # Company A must not read, modify, or delete Company B records by guessing IDs.
+    use_role(client, "admin")
+    assert client.patch(
+        f"/api/v1/departments/{department_b['id']}", json={"name": "Hijacked"}
+    ).status_code == 404
+    assert client.delete(f"/api/v1/departments/{department_b['id']}").status_code == 404
+    assert client.patch(
+        f"/api/v1/employees/{employee_b['id']}", json={"full_name": "Hijacked"}
+    ).status_code == 404
+    assert client.delete(f"/api/v1/employees/{employee_b['id']}").status_code == 404
+    assert client.get(f"/api/v1/software-licenses/{license_b['id']}").status_code == 404
+    assert client.patch(
+        f"/api/v1/software-licenses/{license_b['id']}", json={"name": "Hijacked"}
+    ).status_code == 404
+    assert client.delete(f"/api/v1/software-licenses/{license_b['id']}").status_code == 404
+    assert client.get(
+        f"/api/v1/maintenance-requests/{maintenance_b['id']}"
+    ).status_code == 404
+    assert client.patch(
+        f"/api/v1/maintenance-requests/{maintenance_b['id']}",
+        json={"title": "Hijacked"},
+    ).status_code == 404
+
+    # Verify Company B data was not changed or removed.
+    use_role(client, "other_admin")
+    assert client.get(f"/api/v1/departments").json()[0]["name"] == "B Operations"
+    assert client.get(f"/api/v1/employees").json()[0]["full_name"] == "Employee B"
+    assert client.get(f"/api/v1/software-licenses/{license_b['id']}").json()["name"] == "B License"
+    assert client.get(
+        f"/api/v1/maintenance-requests/{maintenance_b['id']}"
+    ).json()["title"] == "B maintenance"
+
+    # Audit results must contain only events attributed to the current organization.
+    use_role(client, "admin")
+    events_a = client.get("/api/v1/audit-events").json()
+    assert events_a
+    assert all(event["actor_user_id"] != client.app.state.test_tokens.get("other_admin_user_id")
+               for event in events_a)
+    assert any(event["entity_id"] == department_a["id"] for event in events_a)
+    assert any(event["entity_id"] == employee_a["id"] for event in events_a)
+    assert any(event["entity_id"] == license_a["id"] for event in events_a)
+    assert any(event["entity_id"] == maintenance_a["id"] for event in events_a)
