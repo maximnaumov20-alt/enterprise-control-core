@@ -4,7 +4,7 @@
 
 | Capability | Admin | Editor | Viewer |
 |---|---:|---:|---:|
-| View assets and software licences in own organization | Yes | Yes | Yes |
+| View assets and software licences in own organization | Yes | Yes | Yes |\n| Create maintenance requests | Yes | Yes | Yes |\n| View maintenance requests | All in organization | All in organization | Own requests only |\n| Change maintenance request status or assignee | Yes | Yes | No |
 | Create, edit and delete assets and software licences in own organization | Yes | Yes | No |
 | Create and manage users in own organization | Yes | No | No |
 | View own organization's audit events | Yes | No | No |
@@ -44,4 +44,4 @@ Do not reuse an email already registered in the system. Organization provisionin
 
 ## Audit history
 
-Administrators can open **Журнал действий** to review recent user and asset changes in their organization. The web interface requests the latest 100 events; the API permits up to 200 per request. Software license records store a contract or order reference only; activation keys and passwords must not be entered in this module. This is an application audit trail, not tamper-proof evidence; database administrators can alter stored records.
+Administrators can open **Журнал действий** to review recent user and asset changes in their organization. The web interface requests the latest 100 events; the API permits up to 200 per request. Software licence records store a contract or order reference only; activation keys and passwords must not be entered in this module. Maintenance request records are organization-scoped; viewers can see only the requests they created. This is an application audit trail, not tamper-proof evidence; database administrators can alter stored records.
