@@ -862,3 +862,70 @@ def test_asset_csv_import_export_cannot_cross_tenant_boundaries(client: TestClie
 
     use_role(client, "other_admin")
     assert client.get("/api/v1/assets").json()[0]["asset_tag"] == "CSV-TENANT-B"
+
+
+
+def test_related_records_reject_foreign_departments_and_inactive_assignees(client: TestClient) -> None:
+    department_a = client.post(
+        "/api/v1/departments",
+        json={"name": "A Department", "code": "A-DEPT"},
+    ).json()
+    employee = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "BOUNDARY-EMP-A",
+            "full_name": "Boundary Employee",
+            "department_id": department_a["id"],
+        },
+    )
+    assert employee.status_code == 201
+
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Boundary Asset", "asset_tag": "BOUNDARY-ASSET-A", "category": "Server"},
+    )
+    assert asset.status_code == 201
+    maintenance = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset.json()["id"],
+            "title": "Boundary maintenance",
+            "description": "Validate active assignee constraint",
+        },
+    )
+    assert maintenance.status_code == 201
+
+    users = client.get("/api/v1/users").json()
+    editor = next(user for user in users if user["email"] == "editor.a@example.com")
+    deactivated = client.patch(
+        f"/api/v1/users/{editor['id']}",
+        json={"is_active": False},
+    )
+    assert deactivated.status_code == 200
+
+    use_role(client, "other_admin")
+    department_b = client.post(
+        "/api/v1/departments",
+        json={"name": "B Department", "code": "B-DEPT"},
+    )
+    assert department_b.status_code == 201
+    department_b_id = department_b.json()["id"]
+
+    use_role(client, "admin")
+    reassignment = client.patch(
+        f"/api/v1/employees/{employee.json()['id']}",
+        json={"department_id": department_b_id},
+    )
+    assert reassignment.status_code == 422
+
+    assignment = client.patch(
+        f"/api/v1/maintenance-requests/{maintenance.json()['id']}",
+        json={"assigned_to_user_id": editor["id"]},
+    )
+    assert assignment.status_code == 422
+
+    # Rejected relationship changes must leave the original records intact.
+    assert client.get("/api/v1/employees").json()[0]["department_id"] == department_a["id"]
+    assert client.get(
+        f"/api/v1/maintenance-requests/{maintenance.json()['id']}"
+    ).json()["assigned_to_user_id"] is None
