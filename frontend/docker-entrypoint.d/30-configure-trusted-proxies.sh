@@ -45,6 +45,6 @@ for cidr in $trusted_proxies; do
             ;;
     esac
 
-    printf 'set_real_ip_from %s;\\n' "$cidr" >> "$config_file"
+    printf 'set_real_ip_from %s;\n' "$cidr" >> "$config_file"
 done
 IFS=$old_ifs
