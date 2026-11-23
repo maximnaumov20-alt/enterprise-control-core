@@ -525,13 +525,14 @@ def test_password_change_revokes_existing_access_token(client: TestClient) -> No
 
 def test_disabling_and_reenabling_user_revokes_old_access_token(client: TestClient) -> None:
     editor_token = client.app.state.test_tokens["editor"]
+    editor_id = next(user["id"] for user in client.get("/api/v1/users").json() if user["email"] == "editor.a@example.com")
     response = client.patch(
-        "/api/v1/users/2",
+        f"/api/v1/users/{editor_id}",
         json={"is_active": False},
     )
     assert response.status_code == 200
     response = client.patch(
-        "/api/v1/users/2",
+        f"/api/v1/users/{editor_id}",
         json={"is_active": True},
     )
     assert response.status_code == 200
