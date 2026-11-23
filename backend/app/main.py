@@ -113,7 +113,9 @@ class Employee(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    organization_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
     department_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     employee_number: Mapped[str] = mapped_column(String(40), nullable=False)
     full_name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
