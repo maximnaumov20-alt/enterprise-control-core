@@ -45,6 +45,7 @@ export default function App() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [form, setForm] = useState<AssetInput>(emptyForm);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingVersion, setEditingVersion] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -353,6 +354,7 @@ export default function App() {
 
   function beginEdit(asset: Asset) {
     setEditingId(asset.id);
+    setEditingVersion(asset.version);
     setForm({
       name: asset.name, asset_tag: asset.asset_tag, category: asset.category,
       manufacturer: asset.manufacturer || "", model: asset.model || "",
@@ -362,7 +364,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function resetForm() { setEditingId(null); setForm(emptyForm); }
+  function resetForm() { setEditingId(null); setEditingVersion(null); setForm(emptyForm); }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -377,7 +379,7 @@ export default function App() {
         assigned_to: form.assigned_to?.trim() || null
       };
       if (editingId === null) await api.createAsset(payload);
-      else await api.updateAsset(editingId, payload);
+      else await api.updateAsset(editingId, { ...payload, expected_version: editingVersion! });
       resetForm();
       await loadAssets();
     } catch (e) {
@@ -387,8 +389,9 @@ export default function App() {
 
   async function applyBulkEdit() {
     if (selectedAssetIds.size === 0) return;
-    const payload: { asset_ids: number[]; status?: AssetStatus; assigned_to?: string | null } = {
-      asset_ids: Array.from(selectedAssetIds)
+    const payload: { asset_ids: number[]; versions: Record<number, number>; status?: AssetStatus; assigned_to?: string | null } = {
+      asset_ids: Array.from(selectedAssetIds),
+      versions: Object.fromEntries(assets.filter(asset => selectedAssetIds.has(asset.id)).map(asset => [asset.id, asset.version]))
     };
     if (bulkStatus) payload.status = bulkStatus;
     if (bulkClearAssignee) payload.assigned_to = null;

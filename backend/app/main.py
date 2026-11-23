@@ -23,6 +23,7 @@ from sqlalchemy import (
     create_engine, select,
 )
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
@@ -250,6 +251,9 @@ class Asset(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __mapper_args__ = {"version_id_col": version}
 
 
 class MaintenanceRequest(Base):
@@ -375,6 +379,7 @@ class AssetCreate(BaseModel):
 
 
 class AssetUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=160)
     category: str | None = Field(default=None, min_length=1, max_length=80)
     manufacturer: str | None = Field(default=None, max_length=120)
@@ -386,6 +391,7 @@ class AssetUpdate(BaseModel):
 
 class AssetBulkUpdate(BaseModel):
     asset_ids: list[int] = Field(min_length=1, max_length=100)
+    versions: dict[int, int] = Field(min_length=1, max_length=100)
     status: AssetStatus | None = None
     assigned_to: str | None = Field(default=None, max_length=160)
 
@@ -393,6 +399,10 @@ class AssetBulkUpdate(BaseModel):
     def validate_bulk_update(self):
         if len(self.asset_ids) != len(set(self.asset_ids)):
             raise ValueError("asset_ids must not contain duplicates")
+        if set(self.versions) != set(self.asset_ids):
+            raise ValueError("versions must contain exactly one version for every asset_id")
+        if any(version < 1 for version in self.versions.values()):
+            raise ValueError("asset versions must be positive integers")
         if any(asset_id <= 0 for asset_id in self.asset_ids):
             raise ValueError("asset_ids must contain positive integers")
         if "status" in self.model_fields_set and self.status is None:
@@ -418,6 +428,7 @@ class AssetRead(BaseModel):
     status: AssetStatus
     created_at: datetime
     updated_at: datetime
+    version: int
 
 
 class DepartmentCreate(BaseModel):
@@ -923,7 +934,9 @@ def bulk_update_assets(
     if len(assets) != len(payload.asset_ids):
         raise HTTPException(status_code=404, detail="One or more assets were not found")
 
-    requested = payload.model_dump(exclude_unset=True, exclude={"asset_ids"})
+    if any(payload.versions.get(asset.id) != asset.version for asset in assets):
+        raise HTTPException(status_code=409, detail="One or more assets have changed. Reload the assets and retry.")
+    requested = payload.model_dump(exclude_unset=True, exclude={"asset_ids", "versions"})
     changed_count = 0
     try:
         for asset in assets:
@@ -942,9 +955,9 @@ def bulk_update_assets(
                 )
                 changed_count += 1
         session.commit()
-    except IntegrityError:
+    except (IntegrityError, StaleDataError):
         session.rollback()
-        raise HTTPException(status_code=409, detail="Bulk update conflicts with existing data")
+        raise HTTPException(status_code=409, detail="Bulk update conflicts with existing data or stale asset versions")
 
     for asset in assets:
         session.refresh(asset)
@@ -1116,7 +1129,9 @@ def update_asset(
     ))
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    changes = payload.model_dump(exclude_unset=True)
+    if payload.expected_version != asset.version:
+        raise HTTPException(status_code=409, detail="Asset has changed. Reload the asset before saving.")
+    changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
     for required_field in ("name", "category"):
         if required_field in changes and changes[required_field] is None:
             raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
@@ -1137,9 +1152,9 @@ def update_asset(
             {"changes": before_after},
         )
         session.commit()
-    except IntegrityError:
+    except (IntegrityError, StaleDataError):
         session.rollback()
-        raise HTTPException(status_code=409, detail="Asset update conflicts with existing organization records")
+        raise HTTPException(status_code=409, detail="Asset update conflicts with existing organization records or stale version")
     session.refresh(asset)
     return asset
 

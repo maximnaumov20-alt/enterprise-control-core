@@ -172,6 +172,7 @@ def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
     )
     assert created.status_code == 201
     asset_id = created.json()["id"]
+    asset_version = created.json()["version"]
 
     listed = client.get("/api/v1/assets")
     assert listed.status_code == 200
@@ -179,7 +180,7 @@ def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
 
     updated = client.patch(
         f"/api/v1/assets/{asset_id}",
-        json={"status": "in_repair"},
+        json={"expected_version": asset_version, "status": "in_repair"},
     )
     assert updated.status_code == 200
     assert updated.json()["status"] == "in_repair"
@@ -255,12 +256,13 @@ def test_asset_update_audit_integrity_conflict_rolls_back_changes(
         json={"name": "Original laptop", "asset_tag": "AUDIT-UPDATE-001", "category": "Laptop"},
     )
     asset_id = created.json()["id"]
+    asset_version = created.json()["version"]
 
     def fail_audit(*args, **kwargs):
         raise IntegrityError("insert audit event", {}, Exception("audit constraint"))
 
     monkeypatch.setattr(main, "record_audit", fail_audit)
-    response = client.patch(f"/api/v1/assets/{asset_id}", json={"name": "Must roll back"})
+    response = client.patch(f"/api/v1/assets/{asset_id}", json={"expected_version": asset_version, "name": "Must roll back"})
     assert response.status_code == 409
     refreshed = client.get(f"/api/v1/assets/{asset_id}")
     assert refreshed.status_code == 200
@@ -273,7 +275,7 @@ def test_asset_history_is_tenant_scoped_and_readable_by_viewer(client: TestClien
         json={"name": "History laptop", "asset_tag": "HIST-001", "category": "Laptop"},
     )
     asset_id = created.json()["id"]
-    assert client.patch(f"/api/v1/assets/{asset_id}", json={"name": "Renamed laptop"}).status_code == 200
+    assert client.patch(f"/api/v1/assets/{asset_id}", json={"expected_version": created.json()["version"], "name": "Renamed laptop"}).status_code == 200
 
     use_role(client, "viewer")
     history = client.get(f"/api/v1/assets/{asset_id}/history")
@@ -297,9 +299,10 @@ def test_bulk_asset_update_changes_assets_and_records_each_history(client: TestC
         assert created.status_code == 201
         ids.append(created.json()["id"])
 
+    versions = {item["id"]: item["version"] for item in client.get("/api/v1/assets").json() if item["id"] in ids}
     response = client.patch(
         "/api/v1/assets/bulk",
-        json={"asset_ids": ids, "status": "in_repair", "assigned_to": "Alex Smith"},
+        json={"asset_ids": ids, "versions": versions, "status": "in_repair", "assigned_to": "Alex Smith"},
     )
     assert response.status_code == 200
     result = response.json()
@@ -326,7 +329,7 @@ def test_bulk_asset_update_unchanged_values_are_noop(client: TestClient) -> None
     asset_id = created.json()["id"]
     response = client.patch(
         "/api/v1/assets/bulk",
-        json={"asset_ids": [asset_id], "status": "active", "assigned_to": None},
+        json={"asset_ids": [asset_id], "versions": {asset_id: created.json()["version"]}, "status": "active", "assigned_to": None},
     )
     assert response.status_code == 200
     assert response.json()["updated"] == 0
@@ -337,10 +340,10 @@ def test_bulk_asset_update_unchanged_values_are_noop(client: TestClient) -> None
 def test_bulk_asset_update_validates_ids_and_fields(client: TestClient) -> None:
     for payload in (
         {"asset_ids": [] , "status": "active"},
-        {"asset_ids": [1, 1], "status": "active"},
-        {"asset_ids": [1], "status": None, "assigned_to": "A"},
-        {"asset_ids": [1]},
-        {"asset_ids": list(range(1, 102)), "status": "active"},
+        {"asset_ids": [1, 1], "versions": {1: 1}, "status": "active"},
+        {"asset_ids": [1], "versions": {1: 1}, "status": None, "assigned_to": "A"},
+        {"asset_ids": [1], "versions": {1: 1}},
+        {"asset_ids": list(range(1, 102)), "versions": {i: 1 for i in range(1, 102)}, "status": "active"},
     ):
         assert client.patch("/api/v1/assets/bulk", json=payload).status_code == 422
 
@@ -349,7 +352,7 @@ def test_bulk_asset_update_requires_editor_or_admin(client: TestClient) -> None:
     use_role(client, "viewer")
     response = client.patch(
         "/api/v1/assets/bulk",
-        json={"asset_ids": [1], "status": "retired"},
+        json={"asset_ids": [1], "versions": {1: 1}, "status": "retired"},
     )
     assert response.status_code == 403
 
@@ -368,7 +371,7 @@ def test_bulk_asset_update_rejects_foreign_tenant_without_partial_changes(client
 
     response = client.patch(
         "/api/v1/assets/bulk",
-        json={"asset_ids": [first["id"], foreign["id"]], "status": "retired"},
+        json={"asset_ids": [first["id"], foreign["id"]], "versions": {first["id"]: first["version"], foreign["id"]: foreign["version"]}, "status": "retired"},
     )
     assert response.status_code == 404
     unchanged = client.get(f"/api/v1/assets/{first['id']}")
@@ -468,7 +471,7 @@ def test_required_asset_fields_cannot_be_cleared(client: TestClient) -> None:
         json={"name": "Office laptop", "asset_tag": "ECC-LT-003", "category": "Laptop"},
     )
     asset_id = created.json()["id"]
-    response = client.patch(f"/api/v1/assets/{asset_id}", json={"name": None})
+    response = client.patch(f"/api/v1/assets/{asset_id}", json={"expected_version": created.json()["version"], "name": None})
     assert response.status_code == 422
 
 
@@ -2147,6 +2150,7 @@ def test_bulk_asset_update_audit_integrity_error_rolls_back_all_assets(
         assert created.status_code == 201
         asset_ids.append(created.json()["id"])
 
+    versions = {item["id"]: item["version"] for item in client.get("/api/v1/assets").json() if item["id"] in asset_ids}
     existing_audit_ids = {
         event["id"] for event in client.get("/api/v1/audit-events").json()
     }
@@ -2164,11 +2168,11 @@ def test_bulk_asset_update_audit_integrity_error_rolls_back_all_assets(
     monkeypatch.setattr(main, "record_audit", fail_second_bulk_audit)
     response = client.patch(
         "/api/v1/assets/bulk",
-        json={"asset_ids": asset_ids, "status": "in_repair", "assigned_to": "New owner"},
+        json={"asset_ids": asset_ids, "versions": versions, "status": "in_repair", "assigned_to": "New owner"},
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Bulk update conflicts with existing data"
+    assert "conflicts" in response.json()["detail"]
     assert failed_actions == 2
 
     stored_assets = client.get("/api/v1/assets").json()
@@ -2182,3 +2186,72 @@ def test_bulk_asset_update_audit_integrity_error_rolls_back_all_assets(
         event["id"] for event in client.get("/api/v1/audit-events").json()
     }
     assert audit_ids == existing_audit_ids
+
+
+def test_asset_update_rejects_stale_version_without_audit(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={"name": "Versioned asset", "asset_tag": "VERSION-001", "category": "Laptop"},
+    )
+    assert created.status_code == 201
+    asset = created.json()
+    assert asset["version"] == 1
+
+    updated = client.patch(
+        f"/api/v1/assets/{asset['id']}",
+        json={"expected_version": 1, "name": "Updated versioned asset"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 2
+
+    audit_before = client.get("/api/v1/audit-events").json()
+    stale = client.patch(
+        f"/api/v1/assets/{asset['id']}",
+        json={"expected_version": 1, "name": "Stale overwrite"},
+    )
+    assert stale.status_code == 409
+    assert "changed" in stale.json()["detail"].lower()
+
+    stored = client.get(f"/api/v1/assets/{asset['id']}").json()
+    assert stored["name"] == "Updated versioned asset"
+    assert stored["version"] == 2
+    assert client.get("/api/v1/audit-events").json() == audit_before
+
+
+def test_bulk_asset_update_requires_current_versions(client: TestClient) -> None:
+    created_assets = []
+    for index in range(2):
+        response = client.post(
+            "/api/v1/assets",
+            json={
+                "name": f"Bulk versioned asset {index}",
+                "asset_tag": f"BULK-VERSION-{index}",
+                "category": "Laptop",
+            },
+        )
+        assert response.status_code == 201
+        created_assets.append(response.json())
+
+    ids = [item["id"] for item in created_assets]
+    versions = {item["id"]: item["version"] for item in created_assets}
+    fresh = client.patch(
+        f"/api/v1/assets/{ids[0]}",
+        json={"expected_version": versions[ids[0]], "name": "Changed elsewhere"},
+    )
+    assert fresh.status_code == 200
+
+    audit_before = client.get("/api/v1/audit-events").json()
+    stale_bulk = client.patch(
+        "/api/v1/assets/bulk",
+        json={"asset_ids": ids, "versions": versions, "status": "in_repair"},
+    )
+    assert stale_bulk.status_code == 409
+
+    stored = client.get("/api/v1/assets").json()
+    for asset_id in ids:
+        asset = next(item for item in stored if item["id"] == asset_id)
+        assert asset["status"] == "active"
+    changed = next(item for item in stored if item["id"] == ids[0])
+    assert changed["name"] == "Changed elsewhere"
+    assert changed["version"] == 2
+    assert client.get("/api/v1/audit-events").json() == audit_before
