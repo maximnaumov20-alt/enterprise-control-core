@@ -813,6 +813,8 @@ def update_user(
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        return target
     for required_field in ("full_name", "role", "is_active"):
         if required_field in changes and changes[required_field] is None:
             raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
