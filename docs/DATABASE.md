@@ -30,11 +30,15 @@ Review every generated migration before applying it. Autogeneration is a draft, 
 
 ## Docker Compose
 
-The `migrate` one-shot service applies pending migrations. The API service waits for it to complete successfully:
+Copy `.env.example` to `.env`, generate different random values for `POSTGRES_PASSWORD` and `ECC_SECRET_KEY`, and set a unique administrator email and password. Do not commit `.env`.
+
+The `migrate` one-shot service applies pending migrations. The `bootstrap-admin` service creates the initial organization administrator idempotently, and the API waits for both services to complete successfully:
 
 ```bash
 docker compose up --build
 ```
+
+The initial administrator credentials are used only by the one-shot bootstrap container. To provision another organization, run the bootstrap command with a new `ECC_ORGANIZATION_NAME` and a new administrator email; do not reuse an email already registered in the system.
 
 ## Backups
 
