@@ -36,7 +36,7 @@
 
 ## Licensing and release governance
 - [ ] Complete third-party dependency and bundled-asset licence/provenance audit (initial audit register and release checklist added; lockfiles, release SBOM and verified notices still pending)
-- [ ] Add deterministic dependency lockfiles and complete release-specific SBOM generation (CI now publishes provisional CycloneDX SBOM artifacts for both container images; lockfiles, source/dependency inventory and release archival remain pending)
+- [ ] Complete dependency and release SBOM governance (hashed runtime and development Python lockfiles are generated; Docker, CI and security audit consume the split locks; CI publishes provisional CycloneDX SBOM artifacts for both container images; source inventory, verified notices and release archival remain pending)
 - [ ] Finalize Community licence, commercial agreement and contributor terms with qualified legal review
 
 ## Phase 3 - commercial edition
