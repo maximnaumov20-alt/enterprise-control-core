@@ -685,7 +685,8 @@ def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: SessionDep,
 ):
-    client_ip = request.client.host if request.client else "unknown"
+    # X-Real-IP is set by the private Nginx gateway, which overwrites client input.
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
     try:
         retry_after = login_rate_limiter.check(f"ecc:auth:login:{client_ip}")
     except Exception:
