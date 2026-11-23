@@ -23,7 +23,7 @@
 - [x] Per-user access-token invalidation after password or account-active-state changes
 
 ## Phase 2 - operational readiness
-- [ ] Backup and restore procedures (local encrypted backup/restore, PostgreSQL recovery CI test and verified S3 uploader added; live provider upload/download recovery, scheduled execution, immutable retention and measured RPO/RTO pending)
+- [ ] Backup and restore procedures (local encrypted backup/restore, PostgreSQL recovery CI test, S3 uploader and locked backup/upload orchestration added; real-host scheduling, live provider upload/download recovery, immutable retention and measured RPO/RTO pending)
 - [ ] Structured logs and monitoring
 - [x] Baseline frontend security headers
 - [x] Login rate limiting with shared Redis counters
