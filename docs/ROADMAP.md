@@ -10,13 +10,16 @@
 
 ## Phase 1 - usable Community Edition
 - [x] Authentication and secure password handling
-- [x] Organization and user foundation\n- [ ] Departments and organization administration UI
+- [x] Organization and user foundation
+- [ ] Departments and organization administration UI
 - [x] Tenant isolation and role-based access control
 - [ ] Asset import/export
 - [ ] Software and licence register
 - [ ] Maintenance requests
 - [x] Basic audit events
-- [x] Asset inventory web interface with sign-in and role-aware controls\n- [x] Administrator UI for user accounts and audit history\n- [x] Authenticated password change
+- [x] Asset inventory web interface with sign-in and role-aware controls
+- [x] Administrator UI for user accounts and audit history
+- [x] Authenticated password change
 
 ## Phase 2 - operational readiness
 - [ ] Backup and restore procedures
