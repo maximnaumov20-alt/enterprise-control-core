@@ -98,6 +98,11 @@ jobs:
       - name: Validate Docker Compose configuration
         run: |
           cp .env.example .env
+          sed -i \
+            -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-postgres-secret-1234567890/" \
+            -e "s/^ECC_SECRET_KEY=.*/ECC_SECRET_KEY=ci-jwt-secret-1234567890-abcdefghijklmnopqrstuvwxyz/" \
+            -e "s/^ECC_ADMIN_EMAIL=.*/ECC_ADMIN_EMAIL=ci-admin@example.com/" \
+            -e "s/^ECC_ADMIN_PASSWORD=.*/ECC_ADMIN_PASSWORD=ci-admin-password-123456/" .env
           docker compose config --quiet
           rm .env
 
@@ -110,6 +115,11 @@ jobs:
       - name: Run PostgreSQL Compose smoke test
         run: |
           cp .env.example .env
+          sed -i \
+            -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-postgres-secret-1234567890/" \
+            -e "s/^ECC_SECRET_KEY=.*/ECC_SECRET_KEY=ci-jwt-secret-1234567890-abcdefghijklmnopqrstuvwxyz/" \
+            -e "s/^ECC_ADMIN_EMAIL=.*/ECC_ADMIN_EMAIL=ci-admin@example.com/" \
+            -e "s/^ECC_ADMIN_PASSWORD=.*/ECC_ADMIN_PASSWORD=ci-admin-password-123456/" .env
           docker compose up --build --detach
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://localhost:5173/health; then
