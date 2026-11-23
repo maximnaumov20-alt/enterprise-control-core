@@ -147,6 +147,12 @@ jobs:
             echo "IPv6 prefix above /128 was accepted" >&2
             exit 1
           fi
+          for global_network in "0.0.0.0/0" "::/0" "192.0.2.0/0"; do
+            if docker run --rm -e "ECC_TRUSTED_PROXY_CIDRS=$global_network" --entrypoint sh ecc-frontend:test -c '/docker-entrypoint.d/30-configure-trusted-proxies.sh'; then
+              echo "Global /0 trusted-proxy network was accepted: $global_network" >&2
+              exit 1
+            fi
+          done
           docker run --rm --entrypoint sh ecc-frontend:test -c \
             'grep -Fq "proxy_set_header X-Real-IP \$remote_addr;" /etc/nginx/conf.d/default.conf'
           if docker run --rm -e 'ECC_TRUSTED_PROXY_CIDRS=10.0.0.1;touch /tmp/pwned' --entrypoint sh ecc-frontend:test -c '/docker-entrypoint.sh nginx -t'; then
