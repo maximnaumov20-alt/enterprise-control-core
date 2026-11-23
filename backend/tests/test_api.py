@@ -436,6 +436,7 @@ def test_department_and_employee_tenant_isolation(client: TestClient) -> None:
         json={"name": "Engineering", "code": "ENG"},
     )
     assert other_department.status_code == 201
+    other_department_id = other_department.json()["id"]
 
     use_role(client, "admin")
     cross_org_employee = client.post(
@@ -443,7 +444,7 @@ def test_department_and_employee_tenant_isolation(client: TestClient) -> None:
         json={
             "employee_number": "EMP-X",
             "full_name": "Cross Organization",
-            "department_id": department["id"] + 1,
+            "department_id": other_department_id,
         },
     )
     assert cross_org_employee.status_code == 422
