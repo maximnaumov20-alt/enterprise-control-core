@@ -538,6 +538,51 @@ def test_software_license_inventory_crud_and_seat_validation(client: TestClient)
     assert client.delete(f"/api/v1/software-licenses/{license_id}").status_code == 204
 
 
+
+def test_software_license_update_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/software-licenses",
+        json={
+            "name": "Original License",
+            "license_type": "subscription",
+            "license_reference": "UPDATE-ROLLBACK-LICENSE-001",
+            "seats_total": 10,
+            "seats_used": 2,
+        },
+    )
+    assert created.status_code == 201
+    license_id = created.json()["id"]
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_license_update_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "software_license.updated":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_license_update_audit)
+    response = client.patch(
+        f"/api/v1/software-licenses/{license_id}",
+        json={"name": "Partially Updated License"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Software license update conflicts with current organization records"
+    )
+    stored = client.get(f"/api/v1/software-licenses/{license_id}")
+    assert stored.status_code == 200
+    assert stored.json()["name"] == "Original License"
+    audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert audit_ids == existing_audit_ids
+
+
 def test_software_license_access_is_tenant_scoped_and_viewer_read_only(client: TestClient) -> None:
     payload = {
         "name": "Design Tool",
