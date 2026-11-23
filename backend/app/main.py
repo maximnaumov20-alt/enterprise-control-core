@@ -210,6 +210,7 @@ class User(Base):
         SAEnum(UserRole, native_enum=False, length=16), nullable=False
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -589,6 +590,7 @@ def create_access_token(user: User) -> str:
         "iat": now,
         "exp": now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
         "type": "access",
+        "ver": user.token_version,
         "iss": "ecc-api",
         "aud": "ecc-client",
     }
@@ -617,10 +619,11 @@ def get_current_user(
         if payload.get("type") != "access":
             raise unauthorized
         user_id = int(payload["sub"])
-    except (jwt.InvalidTokenError, KeyError, ValueError):
+        token_version = int(payload["ver"])
+    except (jwt.InvalidTokenError, KeyError, ValueError, TypeError):
         raise unauthorized
     user = session.get(User, user_id)
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.token_version != token_version:
         raise unauthorized
     return user
 
@@ -721,6 +724,7 @@ def change_password(
     if not password_hash.verify(payload.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = password_hash.hash(payload.new_password)
+    user.token_version += 1
     record_audit(session, user, "user.password_changed", "user", user.id)
     session.commit()
     return {"status": "password_updated"}
@@ -797,6 +801,8 @@ def update_user(
         changes.get("is_active") is False or changes.get("role") not in (None, UserRole.admin)
     ):
         raise HTTPException(status_code=422, detail="You cannot disable or demote your own admin account")
+    if "is_active" in changes and changes["is_active"] != target.is_active:
+        target.token_version += 1
     for field, value in changes.items():
         setattr(target, field, value)
     record_audit(session, admin, "user.updated", "user", target.id, {"fields": sorted(changes)})
