@@ -13,11 +13,12 @@ venv/
 .coverage
 htmlcov/
 
-# Local database and data
+# Local database, backups and data
 *.db
 *.sqlite
 *.sqlite3
 data/
+backups/
 
 # Editors and operating systems
 .vscode/
