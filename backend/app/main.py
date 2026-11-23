@@ -870,7 +870,7 @@ MAX_ASSET_IMPORT_ROWS = 5000
 
 def _spreadsheet_safe(value: object) -> str:
     text = "" if value is None else str(value)
-    if text.startswith(("=", "+", "-", "@", "\t", "\r", "\n")):
+    if text.lstrip(" \\t\\r\\n").startswith(("=", "+", "-", "@")) or text.startswith(("\\t", "\\r", "\\n")):
         return "'" + text
     return text
 
@@ -903,9 +903,9 @@ def export_assets(
 
 @app.post("/api/v1/assets/import", tags=["assets"])
 async def import_assets(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
     file: UploadFile = File(...),
-    session: SessionDep = None,
-    user: User = Depends(require_roles(UserRole.admin, UserRole.editor)),
 ):
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Upload a .csv file")
