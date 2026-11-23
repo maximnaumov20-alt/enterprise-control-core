@@ -980,6 +980,27 @@ def test_related_records_reject_foreign_departments_and_inactive_assignees(clien
 
 
 
+def test_unchanged_user_update_does_not_create_audit_event(client: TestClient) -> None:
+    users = client.get("/api/v1/users")
+    assert users.status_code == 200
+    target = next(user for user in users.json() if user["email"] == "editor.a@example.com")
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    response = client.patch(
+        f"/api/v1/users/{target['id']}",
+        json={"full_name": f" {target['full_name']} ", "role": target["role"], "is_active": target["is_active"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["full_name"] == target["full_name"]
+
+    after = client.get("/api/v1/audit-events")
+    assert after.status_code == 200
+    assert [event["id"] for event in after.json()] == before_ids
+
+
 def test_empty_user_update_does_not_create_audit_event(client: TestClient) -> None:
     before = client.get("/api/v1/audit-events")
     assert before.status_code == 200
