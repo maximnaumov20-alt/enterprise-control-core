@@ -1035,3 +1035,23 @@ def test_password_change_allows_new_password_and_rejects_old_password(client: Te
     serialized_event = str(password_events[0])
     assert "test-password-admin-123" not in serialized_event
     assert "replacement-password-456" not in serialized_event
+
+
+def test_failed_password_change_does_not_create_audit_event(client: TestClient) -> None:
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    response = client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": "incorrect-current-password",
+            "new_password": "unused-replacement-password-789",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Current password is incorrect"
+
+    after = client.get("/api/v1/audit-events")
+    assert after.status_code == 200
+    assert [event["id"] for event in after.json()] == before_ids
