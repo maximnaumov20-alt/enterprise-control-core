@@ -76,7 +76,9 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "5173:80"
+      # Loopback-only by default. Put a TLS-terminating reverse proxy in front.
+      # Set ECC_FRONTEND_BIND_ADDRESS=0.0.0.0 only for a deliberately firewalled deployment.
+      - "${ECC_FRONTEND_BIND_ADDRESS:-127.0.0.1}:${ECC_FRONTEND_PORT:-5173}:80"
     depends_on:
       api:
         condition: service_healthy
