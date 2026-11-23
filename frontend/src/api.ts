@@ -1,5 +1,7 @@
 export type AssetStatus = "active" | "in_repair" | "retired";
 export type UserRole = "admin" | "editor" | "viewer";
+export type SoftwareLicenseType = "subscription" | "perpetual" | "oem" | "site";
+export type SoftwareLicenseStatus = "active" | "suspended" | "retired";
 
 export interface CurrentUser {
   id: number;
@@ -27,6 +29,25 @@ export interface Asset {
 }
 
 export type AssetInput = Omit<Asset, "id" | "created_at" | "updated_at">;
+
+export interface SoftwareLicense {
+  id: number;
+  name: string;
+  publisher: string | null;
+  version: string | null;
+  license_type: SoftwareLicenseType;
+  license_reference: string | null;
+  seats_total: number;
+  seats_used: number;
+  purchased_at: string | null;
+  expires_at: string | null;
+  status: SoftwareLicenseStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SoftwareLicenseInput = Omit<SoftwareLicense, "id" | "created_at" | "updated_at">;
 
 export interface ManagedUser {
   id: number;
@@ -104,6 +125,13 @@ export const api = {
   updateUser: (id: number, changes: { full_name?: string; role?: UserRole; is_active?: boolean }) =>
     request<ManagedUser>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
   auditEvents: (limit = 100) => request<AuditEvent[]>(`/api/v1/audit-events?limit=${limit}`),
+  softwareLicenses: () => request<SoftwareLicense[]>("/api/v1/software-licenses?limit=200"),
+  createSoftwareLicense: (license: SoftwareLicenseInput) =>
+    request<SoftwareLicense>("/api/v1/software-licenses", { method: "POST", body: JSON.stringify(license) }),
+  updateSoftwareLicense: (id: number, license: Partial<SoftwareLicenseInput>) =>
+    request<SoftwareLicense>(`/api/v1/software-licenses/${id}`, { method: "PATCH", body: JSON.stringify(license) }),
+  deleteSoftwareLicense: (id: number) =>
+    request<void>(`/api/v1/software-licenses/${id}`, { method: "DELETE" }),
   assets: (search = "") => request<Asset[]>(`/api/v1/assets?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`),
   createAsset: (asset: AssetInput) => request<Asset>("/api/v1/assets", { method: "POST", body: JSON.stringify(asset) }),
   updateAsset: (id: number, asset: Partial<AssetInput>) => request<Asset>(`/api/v1/assets/${id}`, { method: "PATCH", body: JSON.stringify(asset) }),
