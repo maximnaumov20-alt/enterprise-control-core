@@ -1746,3 +1746,44 @@ def test_employee_delete_integrity_error_rolls_back_without_audit(
     }
     assert after_audit_ids == existing_audit_ids
 
+
+def test_software_license_delete_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/software-licenses",
+        json={
+            "name": "License To Keep",
+            "license_type": "subscription",
+            "license_reference": "DELETE-ROLLBACK-LICENSE-001",
+            "seats_total": 10,
+            "seats_used": 2,
+        },
+    )
+    assert created.status_code == 201
+    license_id = created.json()["id"]
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_license_delete_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "software_license.deleted":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_license_delete_audit)
+    response = client.delete(f"/api/v1/software-licenses/{license_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Software license deletion conflicts with current organization records"
+    )
+    licenses = client.get("/api/v1/software-licenses")
+    assert licenses.status_code == 200
+    assert any(license_record["id"] == license_id for license_record in licenses.json())
+    after_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert after_audit_ids == existing_audit_ids
+
