@@ -20,14 +20,16 @@
 - [x] Asset inventory web interface with sign-in and role-aware controls
 - [x] Administrator UI for user accounts and audit history
 - [x] Authenticated password change
+- [x] Per-user access-token invalidation after password or account-active-state changes
 
 ## Phase 2 - operational readiness
 - [ ] Backup and restore procedures
 - [ ] Structured logs and monitoring
 - [x] Baseline frontend security headers
-- [ ] API security headers and authentication rate limiting
+- [x] Login rate limiting with shared Redis counters
+- [ ] Additional API security headers and deployment hardening
 - [ ] Dependency and container scanning
-- [ ] Automated integration tests
+- [ ] Automated integration tests against PostgreSQL
 - [ ] Installation and upgrade documentation
 - [ ] Independent security review
 
