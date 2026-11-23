@@ -2,7 +2,7 @@
 
 Open-core platform for managing company IT assets, software inventory and maintenance requests.
 
-> **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, authorization, audit integrity, backup/restore procedures and security review are not implemented yet. Do not use it with sensitive or production data.
+> **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, role-based permissions, organization-scoped asset access and basic audit events are implemented. Production hardening, independent security review, MFA, rate limiting and tamper-evident audit storage remain outstanding. Do not use it with sensitive or production data.
 
 ## Community edition
 
@@ -42,8 +42,12 @@ The API will be available at http://127.0.0.1:8000 and interactive documentation
 For the full local development stack (PostgreSQL, API and web interface):
 
 ```bash
+cp .env.example .env
+# Replace all placeholders with unique secrets and administrator credentials.
 docker compose up --build
 ```
+
+The API requires a bearer token. Docker Compose applies migrations and creates the first organization administrator before starting the API. See [Security policy](docs/SECURITY.md) and [Database migrations and backups](docs/DATABASE.md) for details.
 
 Open the web interface at http://localhost:5173. The API is available at http://localhost:8000 and its interactive documentation at http://localhost:8000/docs.
 
@@ -55,6 +59,7 @@ Database schema changes are managed with Alembic. See [Database migrations and b
 backend/
   app/
     main.py
+    create_admin.py
   migrations/
     versions/
   alembic.ini
@@ -69,6 +74,7 @@ frontend/
 docs/
   ROADMAP.md
   SECURITY.md
+  DATABASE.md
 docker-compose.yml
 Dockerfile
 
