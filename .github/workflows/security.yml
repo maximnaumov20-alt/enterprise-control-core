@@ -29,7 +29,9 @@ jobs:
         run: python -m pip install --upgrade pip-audit
 
       - name: Audit locked Python requirements
-        run: pip-audit -r backend/requirements.lock
+        run: |
+          pip-audit -r backend/requirements-runtime.lock
+          pip-audit -r backend/requirements-dev.lock
 
   frontend-dependencies:
     name: Frontend dependency audit
