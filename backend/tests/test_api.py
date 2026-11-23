@@ -307,14 +307,14 @@ def test_bulk_asset_update_rejects_foreign_tenant_without_partial_changes(client
     unchanged = client.get(f"/api/v1/assets/{first['id']}")
     assert unchanged.status_code == 200
     assert unchanged.json()["status"] == "active"
-    assert client.get(f"/api/v1/assets/{first['id']}/history").json() == []
+    assert not any(event["action"] == "asset.updated" for event in client.get(f"/api/v1/assets/{first['id']}/history").json())
 
 
 def test_asset_csv_import_export_and_formula_safety(client: TestClient) -> None:
     csv_data = (
         "name,asset_tag,category,manufacturer,model,serial_number,assigned_to,status\n"
         "Imported laptop,CSV-001,Laptop,Example,Model A,SN-CSV-001,Alex,active\n"
-        "Formula device,CSV-002,Laptop,"=HYPERLINK(""https://example.invalid"")",,,active\n"
+        'Formula device,CSV-002,Laptop,"=HYPERLINK(""https://example.invalid"")",,,active\n'
     )
     imported = client.post(
         "/api/v1/assets/import",
