@@ -189,6 +189,13 @@ def update_asset(asset_id: int, payload: AssetUpdate, session: SessionDep):
         raise HTTPException(status_code=404, detail="Asset not found")
 
     changes = payload.model_dump(exclude_unset=True)
+    for required_field in ("name", "category"):
+        if required_field in changes and changes[required_field] is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{required_field} cannot be null",
+            )
+
     if changes.get("serial_number"):
         duplicate = session.scalar(
             select(Asset).where(
