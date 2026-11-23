@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Callable
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
+from redis import Redis
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy import (
     CheckConstraint, Date, DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, Text, UniqueConstraint,
@@ -29,12 +32,56 @@ engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=Tr
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 SECRET_KEY = os.getenv("ECC_SECRET_KEY")
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "20"))
+AUTH_RATE_LIMIT_MAX = int(os.getenv("AUTH_RATE_LIMIT_MAX", "10"))
+AUTH_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SECONDS", "60"))
+if AUTH_RATE_LIMIT_MAX < 1 or AUTH_RATE_LIMIT_WINDOW_SECONDS < 1:
+    raise RuntimeError("Authentication rate-limit settings must be positive integers.")
 if SECRET_KEY and "REPLACE_WITH" in SECRET_KEY:
     raise RuntimeError("ECC_SECRET_KEY is still a placeholder; configure a unique random secret.")
 if SECRET_KEY and len(SECRET_KEY.encode("utf-8")) < 32:
     raise RuntimeError("ECC_SECRET_KEY must contain at least 32 bytes.")
 if not 5 <= ACCESS_TOKEN_MINUTES <= 60:
     raise RuntimeError("ACCESS_TOKEN_MINUTES must be between 5 and 60.")
+class LoginRateLimiter:
+    """Fixed-window login limiter. Redis is shared across API workers in production."""
+
+    def __init__(self, max_attempts: int, window_seconds: int, redis_client: Redis | None = None):
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self.redis_client = redis_client
+        self._lock = threading.Lock()
+        self._buckets: dict[str, tuple[int, float]] = {}
+
+    def check(self, key: str) -> int | None:
+        if self.redis_client is not None:
+            count, ttl = self.redis_client.eval(
+                """
+                local count = redis.call('INCR', KEYS[1])
+                if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+                return {count, redis.call('TTL', KEYS[1])}
+                """,
+                1, key, self.window_seconds,
+            )
+            return max(int(ttl), 1) if int(count) > self.max_attempts else None
+
+        now = time.monotonic()
+        with self._lock:
+            count, expires_at = self._buckets.get(key, (0, now + self.window_seconds))
+            if now >= expires_at:
+                count, expires_at = 0, now + self.window_seconds
+            count += 1
+            self._buckets[key] = (count, expires_at)
+            if count > self.max_attempts:
+                return max(int(expires_at - now + 0.999), 1)
+        return None
+
+
+redis_url = os.getenv("REDIS_URL")
+redis_client = Redis.from_url(redis_url, decode_responses=True) if redis_url else None
+login_rate_limiter = LoginRateLimiter(
+    AUTH_RATE_LIMIT_MAX, AUTH_RATE_LIMIT_WINDOW_SECONDS, redis_client
+)
+
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
@@ -634,9 +681,23 @@ def health():
 
 @app.post("/api/v1/auth/token", response_model=TokenRead, tags=["authentication"])
 def login(
+    request: Request,
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: SessionDep,
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        retry_after = login_rate_limiter.check(f"ecc:auth:login:{client_ip}")
+    except Exception:
+        # Do not silently disable brute-force protection when the shared store fails.
+        raise HTTPException(status_code=503, detail="Authentication temporarily unavailable")
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = session.scalar(select(User).where(User.email == form.username.strip().lower()))
     if user is None or not user.is_active or not password_hash.verify(form.password, user.password_hash):
         raise HTTPException(
