@@ -64,6 +64,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
 
     app.dependency_overrides[get_session] = override_get_session
     app.state.test_tokens = tokens
+    app.state.test_session_local = TestingSessionLocal
     try:
         with TestClient(app) as test_client:
             test_client.headers.update({"Authorization": f"Bearer {tokens['admin']}"})
@@ -1458,3 +1459,43 @@ def test_noop_software_license_update_does_not_create_audit_event(client: TestCl
 
     after = client.get("/api/v1/audit-events")
     assert [event["id"] for event in after.json()] == before_ids
+
+
+def test_asset_delete_referenced_by_maintenance_returns_conflict_without_audit(client: TestClient) -> None:
+    from sqlalchemy import text
+
+    # Enable SQLite foreign-key enforcement for this connection so the test
+    # exercises the same RESTRICT behavior as PostgreSQL.
+    session_factory = client.app.state.test_session_local
+    with session_factory() as session:
+        session.execute(text("PRAGMA foreign_keys=ON"))
+
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Protected asset", "asset_tag": "DELETE-PROTECTED-001", "category": "Server"},
+    )
+    assert asset.status_code == 201
+    asset_id = asset.json()["id"]
+
+    maintenance = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset_id,
+            "title": "Keep this asset",
+            "description": "The maintenance record protects the asset.",
+        },
+    )
+    assert maintenance.status_code == 201
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    deleted = client.delete(f"/api/v1/assets/{asset_id}")
+    assert deleted.status_code == 409
+    assert deleted.json()["detail"] == "Asset is referenced by maintenance requests and cannot be deleted"
+
+    after = client.get("/api/v1/audit-events")
+    assert after.status_code == 200
+    assert [event["id"] for event in after.json()] == before_ids
+    assert client.get(f"/api/v1/assets/{asset_id}").status_code == 200
