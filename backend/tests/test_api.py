@@ -192,6 +192,53 @@ def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
     assert client.get(f"/api/v1/assets/{asset_id}").status_code == 404
 
 
+def test_asset_csv_import_export_and_formula_safety(client: TestClient) -> None:
+    csv_data = (
+        "name,asset_tag,category,manufacturer,model,serial_number,assigned_to,status\n"
+        "Imported laptop,CSV-001,Laptop,Example,Model A,SN-CSV-001,Alex,active\n"
+        "Formula device,CSV-002,Laptop,=HYPERLINK(\"https://example.invalid\"),,,active\n"
+    )
+    imported = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", csv_data.encode("utf-8"), "text/csv")},
+    )
+    assert imported.status_code == 200
+    assert imported.json()["created"] == 2
+    assert imported.json()["skipped"] == 0
+
+    duplicate = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", csv_data.encode("utf-8"), "text/csv")},
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["created"] == 0
+    assert duplicate.json()["skipped"] == 2
+
+    exported = client.get("/api/v1/assets/export")
+    assert exported.status_code == 200
+    assert "CSV-001" in exported.text
+    assert "'=HYPERLINK" in exported.text
+
+
+def test_asset_csv_import_is_role_and_tenant_scoped(client: TestClient) -> None:
+    payload = "name,asset_tag,category\nScoped laptop,CSV-SCOPE,Laptop\n"
+    use_role(client, "viewer")
+    denied = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", payload.encode(), "text/csv")},
+    )
+    assert denied.status_code == 403
+
+    use_role(client, "other_admin")
+    imported = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", payload.encode(), "text/csv")},
+    )
+    assert imported.status_code == 200
+    assert imported.json()["created"] == 1
+    assert client.get("/api/v1/assets").json()[0]["asset_tag"] == "CSV-SCOPE"
+
+
 def test_duplicate_asset_tag_is_rejected_within_organization(client: TestClient) -> None:
     payload = {"name": "Office laptop", "asset_tag": "ECC-LT-002", "category": "Laptop"}
     assert client.post("/api/v1/assets", json=payload).status_code == 201
