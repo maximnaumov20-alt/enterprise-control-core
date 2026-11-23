@@ -144,10 +144,15 @@ jobs:
             -d '{"name":"CI software","license_type":"subscription","seats_total":10,"seats_used":2}' \
             http://localhost:5173/api/v1/software-licenses
 
-          curl --fail --silent --show-error -X POST \
+          maintenance=$(curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
             -d "{\"asset_id\":$asset_id,\"title\":\"CI maintenance check\",\"description\":\"PostgreSQL integration smoke test\",\"priority\":\"normal\"}" \
-            http://localhost:5173/api/v1/maintenance-requests
+            http://localhost:5173/api/v1/maintenance-requests)
+          maintenance_id=$(printf '%s' "$maintenance" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          curl --fail --silent --show-error -X PATCH \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
+            -d '{"status":"resolved"}' \
+            "http://localhost:5173/api/v1/maintenance-requests/$maintenance_id"
 
           docker compose exec -T api alembic current
           docker compose down --volumes
