@@ -2,7 +2,7 @@
 
 Planned open-core platform for managing company IT assets, software inventory and maintenance requests.
 
-> **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, role-based permissions, organization-scoped asset access and basic audit events are implemented. Production hardening, independent security review, MFA, secure session revocation and tamper-evident audit storage remain outstanding. Do not use it with sensitive or production data.
+> **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, role-based permissions, organization-scoped asset access, per-user access-token invalidation after password or account-state changes, login rate limiting and basic audit events are implemented. Production hardening, independent security review, MFA, refresh-token support, selective token revocation and tamper-evident audit storage remain outstanding. Do not use it with sensitive or production data.
 
 ## Community edition
 
