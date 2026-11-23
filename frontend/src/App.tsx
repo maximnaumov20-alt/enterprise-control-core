@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, ManagedUser, UserRole, setAccessToken } from "./api";
+import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
 
 const emptyForm: AssetInput = {
   name: "", asset_tag: "", category: "Компьютер", manufacturer: "",
@@ -8,6 +8,20 @@ const emptyForm: AssetInput = {
 
 const statusLabels: Record<AssetStatus, string> = {
   active: "В эксплуатации", in_repair: "В ремонте", retired: "Списано"
+};
+
+const emptySoftwareForm: SoftwareLicenseInput = {
+  name: "", publisher: "", version: "", license_type: "subscription",
+  license_reference: "", seats_total: 1, seats_used: 0,
+  purchased_at: null, expires_at: null, status: "active", notes: ""
+};
+
+const licenseTypeLabels: Record<SoftwareLicenseType, string> = {
+  subscription: "Подписка", perpetual: "Бессрочная", oem: "OEM", site: "Корпоративная"
+};
+
+const licenseStatusLabels: Record<SoftwareLicenseStatus, string> = {
+  active: "Активна", suspended: "Приостановлена", retired: "Закрыта"
 };
 
 export default function App() {
@@ -25,7 +39,11 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [section, setSection] = useState<"assets" | "users" | "audit">("assets");
+  const [section, setSection] = useState<"assets" | "software" | "users" | "audit">("assets");
+  const [softwareLicenses, setSoftwareLicenses] = useState<SoftwareLicense[]>([]);
+  const [softwareForm, setSoftwareForm] = useState<SoftwareLicenseInput>(emptySoftwareForm);
+  const [editingSoftwareId, setEditingSoftwareId] = useState<number | null>(null);
+  const [softwareSaving, setSoftwareSaving] = useState(false);
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [userForm, setUserForm] = useState({ email: "", full_name: "", password: "", role: "viewer" as UserRole });
@@ -97,6 +115,61 @@ export default function App() {
       setNotice("");
       setError(e instanceof Error ? e.message : "Не удалось изменить пароль");
     } finally { setPasswordSaving(false); }
+  }
+
+  async function openSoftware() {
+    setSection("software");
+    setError("");
+    try { setSoftwareLicenses(await api.softwareLicenses()); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить лицензии"); }
+  }
+
+  function beginSoftwareEdit(item: SoftwareLicense) {
+    setEditingSoftwareId(item.id);
+    setSoftwareForm({
+      name: item.name,
+      publisher: item.publisher || "",
+      version: item.version || "",
+      license_type: item.license_type,
+      license_reference: item.license_reference || "",
+      seats_total: item.seats_total,
+      seats_used: item.seats_used,
+      purchased_at: item.purchased_at,
+      expires_at: item.expires_at,
+      status: item.status,
+      notes: item.notes || ""
+    });
+  }
+
+  async function submitSoftware(event: FormEvent) {
+    event.preventDefault();
+    setSoftwareSaving(true);
+    setError("");
+    try {
+      const payload = {
+        ...softwareForm,
+        name: softwareForm.name.trim(),
+        publisher: softwareForm.publisher?.trim() || null,
+        version: softwareForm.version?.trim() || null,
+        license_reference: softwareForm.license_reference?.trim() || null,
+        notes: softwareForm.notes?.trim() || null
+      };
+      if (editingSoftwareId === null) await api.createSoftwareLicense(payload);
+      else await api.updateSoftwareLicense(editingSoftwareId, payload);
+      setEditingSoftwareId(null);
+      setSoftwareForm(emptySoftwareForm);
+      setSoftwareLicenses(await api.softwareLicenses());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось сохранить лицензию");
+    } finally { setSoftwareSaving(false); }
+  }
+
+  async function removeSoftware(item: SoftwareLicense) {
+    if (!window.confirm(`Удалить запись о лицензии «${item.name}»?`)) return;
+    try {
+      await api.deleteSoftwareLicense(item.id);
+      setSoftwareLicenses(await api.softwareLicenses());
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось удалить лицензию"); }
   }
 
   async function openUsers() {
@@ -200,11 +273,11 @@ export default function App() {
       <div className="brand"><div className="brand-mark">E</div><div><strong>ECC</strong><span>CONTROL CENTER</span></div></div>
       <div className="nav-caption">РАБОЧЕЕ ПРОСТРАНСТВО</div>
       <button type="button" className={`nav-item ${section === "assets" ? "active" : ""}`} onClick={() => setSection("assets")}><span>▦</span> Оборудование</button>
+      <button type="button" className={`nav-item ${section === "software" ? "active" : ""}`} onClick={() => void openSoftware()}><span>▤</span> Лицензии ПО</button>
       {currentUser.role === "admin" && <>
         <button type="button" className={`nav-item ${section === "users" ? "active" : ""}`} onClick={() => void openUsers()}><span>♙</span> Пользователи</button>
         <button type="button" className={`nav-item ${section === "audit" ? "active" : ""}`} onClick={() => void openAudit()}><span>≡</span> Журнал действий</button>
       </>}
-      <div className="nav-item disabled"><span>▤</span> Программное обеспечение <small>скоро</small></div>
       <div className="nav-item disabled"><span>⚙</span> Обслуживание <small>скоро</small></div>
       <div className="sidebar-bottom"><span className={apiOnline ? "dot online" : "dot"} /> API {apiOnline ? "подключён" : "не подключён"}<small>Версия 0.2.0 · ранняя сборка</small></div>
     </aside>
@@ -217,7 +290,7 @@ export default function App() {
         <button className="primary" type="submit" disabled={passwordSaving}>{passwordSaving ? "Сохранение..." : "Изменить пароль"}</button>
       </form></div>}
       {notice && <div className="notice">{notice}</div>}
-      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "software" ? "Лицензии ПО" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
       {section === "assets" && <>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
 
@@ -254,6 +327,36 @@ export default function App() {
       </section>
       <footer>Enterprise Control Center <span>·</span> Community Edition <span>·</span> Незавершённая разработка</footer>
       </>}
+
+      {section === "software" && <section className="admin-section">
+        <div className="page-heading"><div><div className="eyebrow">УЧЁТ ПРОГРАММНОГО ОБЕСПЕЧЕНИЯ</div><h1>Лицензии ПО</h1><p>Реестр договоров, типов лицензий и количества мест</p></div></div>
+        {error && <div className="alert">{error}</div>}
+        {currentUser.role !== "viewer" && <section className="panel">
+          <div className="panel-heading"><div><h2>{editingSoftwareId === null ? "Добавить лицензию" : "Редактировать лицензию"}</h2><p>Не вводите ключи активации. Храните только внешний номер договора или заказа.</p></div>{editingSoftwareId !== null && <button className="subtle" onClick={() => { setEditingSoftwareId(null); setSoftwareForm(emptySoftwareForm); }}>Отмена</button>}</div>
+          <form onSubmit={submitSoftware}>
+            <div className="form-grid user-form-grid">
+              <label>Название ПО *<input required maxLength={160} value={softwareForm.name} onChange={e => setSoftwareForm({ ...softwareForm, name: e.target.value })} /></label>
+              <label>Издатель<input maxLength={120} value={softwareForm.publisher || ""} onChange={e => setSoftwareForm({ ...softwareForm, publisher: e.target.value })} /></label>
+              <label>Версия<input maxLength={80} value={softwareForm.version || ""} onChange={e => setSoftwareForm({ ...softwareForm, version: e.target.value })} /></label>
+              <label>Тип лицензии<select value={softwareForm.license_type} onChange={e => setSoftwareForm({ ...softwareForm, license_type: e.target.value as SoftwareLicenseType })}><option value="subscription">Подписка</option><option value="perpetual">Бессрочная</option><option value="oem">OEM</option><option value="site">Корпоративная</option></select></label>
+              <label>Номер договора / заказа<input maxLength={120} value={softwareForm.license_reference || ""} onChange={e => setSoftwareForm({ ...softwareForm, license_reference: e.target.value })} /></label>
+              <label>Всего мест *<input type="number" min={1} max={1000000} required value={softwareForm.seats_total} onChange={e => setSoftwareForm({ ...softwareForm, seats_total: Number(e.target.value) })} /></label>
+              <label>Используется мест<input type="number" min={0} max={1000000} required value={softwareForm.seats_used} onChange={e => setSoftwareForm({ ...softwareForm, seats_used: Number(e.target.value) })} /></label>
+              <label>Статус<select value={softwareForm.status} onChange={e => setSoftwareForm({ ...softwareForm, status: e.target.value as SoftwareLicenseStatus })}><option value="active">Активна</option><option value="suspended">Приостановлена</option><option value="retired">Закрыта</option></select></label>
+              <label>Дата покупки<input type="date" value={softwareForm.purchased_at || ""} onChange={e => setSoftwareForm({ ...softwareForm, purchased_at: e.target.value || null })} /></label>
+              <label>Дата окончания<input type="date" value={softwareForm.expires_at || ""} onChange={e => setSoftwareForm({ ...softwareForm, expires_at: e.target.value || null })} /></label>
+              <label className="wide-field">Примечания<input maxLength={4000} value={softwareForm.notes || ""} onChange={e => setSoftwareForm({ ...softwareForm, notes: e.target.value })} /></label>
+            </div>
+            <div className="form-actions"><span className="required-note">Используемые места не могут превышать общее количество</span><button className="primary" type="submit" disabled={softwareSaving}>{softwareSaving ? "Сохранение..." : editingSoftwareId === null ? "Сохранить лицензию" : "Сохранить изменения"}</button></div>
+          </form>
+        </section>}
+        <section className="panel inventory">
+          <div className="panel-heading"><div><h2>Реестр лицензий</h2><p>{softwareLicenses.length} записей</p></div><button className="subtle" onClick={() => void openSoftware()}>Обновить</button></div>
+          {softwareLicenses.length === 0 ? <div className="empty">Записей пока нет.</div> : <div className="table-wrap"><table><thead><tr><th>ПРОГРАММА</th><th>ТИП</th><th>ДОГОВОР</th><th>МЕСТА</th><th>ОКОНЧАНИЕ</th><th>СТАТУС</th>{currentUser.role !== "viewer" && <th>ДЕЙСТВИЯ</th>}</tr></thead><tbody>
+            {softwareLicenses.map(item => <tr key={item.id}><td><strong>{item.name}</strong><small>{[item.publisher, item.version].filter(Boolean).join(" · ")}</small></td><td>{licenseTypeLabels[item.license_type]}</td><td className="mono">{item.license_reference || "—"}</td><td>{item.seats_used} / {item.seats_total}</td><td>{item.expires_at || "Без срока"}</td><td><span className={`status ${item.status === "active" ? "status-active" : item.status === "suspended" ? "status-in_repair" : "status-retired"}`}>{licenseStatusLabels[item.status]}</span></td>{currentUser.role !== "viewer" && <td className="actions"><button onClick={() => beginSoftwareEdit(item)}>Изменить</button><button className="danger" onClick={() => void removeSoftware(item)}>Удалить</button></td>}</tr>)}
+          </tbody></table></div>}
+        </section>
+      </section>}
 
       {section === "users" && currentUser.role === "admin" && <section className="admin-section">
         <div className="page-heading"><div><div className="eyebrow">АДМИНИСТРИРОВАНИЕ</div><h1>Пользователи</h1><p>Управление доступом сотрудников к организации</p></div></div>
