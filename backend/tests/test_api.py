@@ -1126,3 +1126,41 @@ def test_failed_department_delete_does_not_create_audit_event(client: TestClient
     still_present = client.get("/api/v1/departments")
     assert still_present.status_code == 200
     assert any(item["id"] == department_id for item in still_present.json())
+
+
+def test_duplicate_asset_creation_does_not_create_audit_event(client: TestClient) -> None:
+    original = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "Original Audit Asset",
+            "asset_tag": "AUDIT-DUPLICATE-001",
+            "category": "Server",
+        },
+    )
+    assert original.status_code == 201
+    original_id = original.json()["id"]
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    duplicate = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "Duplicate Audit Asset",
+            "asset_tag": "AUDIT-DUPLICATE-001",
+            "category": "Laptop",
+        },
+    )
+    assert duplicate.status_code == 409
+
+    after = client.get("/api/v1/audit-events")
+    assert after.status_code == 200
+    assert [event["id"] for event in after.json()] == before_ids
+
+    assets = client.get("/api/v1/assets")
+    assert assets.status_code == 200
+    matching = [item for item in assets.json() if item["asset_tag"] == "AUDIT-DUPLICATE-001"]
+    assert len(matching) == 1
+    assert matching[0]["id"] == original_id
+    assert matching[0]["name"] == "Original Audit Asset"
