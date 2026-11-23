@@ -18,6 +18,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [apiOnline, setApiOnline] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -91,8 +92,9 @@ export default function App() {
       setCurrentPassword("");
       setNewPassword("");
       setShowPasswordForm(false);
-      setError("Пароль успешно изменён.");
+      setNotice("Пароль успешно изменён.");
     } catch (e) {
+      setNotice("");
       setError(e instanceof Error ? e.message : "Не удалось изменить пароль");
     } finally { setPasswordSaving(false); }
   }
@@ -214,6 +216,7 @@ export default function App() {
         <label>Новый пароль<input type="password" required minLength={12} maxLength={128} autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} /></label>
         <button className="primary" type="submit" disabled={passwordSaving}>{passwordSaving ? "Сохранение..." : "Изменить пароль"}</button>
       </form></div>}
+      {notice && <div className="notice">{notice}</div>}
       <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
       {section === "assets" && <>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
