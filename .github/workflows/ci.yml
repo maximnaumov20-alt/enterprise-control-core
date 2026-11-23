@@ -88,3 +88,21 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose configuration
+        run: |
+          cp .env.example .env
+          docker compose config --quiet
+          rm .env
+
+      - name: Build API image
+        run: docker build --tag ecc-api:test .
+
+      - name: Build frontend image
+        run: docker build --tag ecc-frontend:test ./frontend
