@@ -14,6 +14,16 @@ services:
       retries: 10
     restart: unless-stopped
 
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:-ecc-local-development-only}@db:5432/ecc
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   frontend:
     build: ./frontend
     ports:
@@ -30,8 +40,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
