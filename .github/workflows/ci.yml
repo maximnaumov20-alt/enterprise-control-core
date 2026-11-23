@@ -188,7 +188,7 @@ jobs:
           backup_asset_id=$(printf '%s' "$backup_asset" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 
           ECC_BACKUP_DIR=/tmp/ecc-ci-backups ECC_BACKUP_AGE_RECIPIENT="$age_recipient" bash scripts/backup-postgres.sh
-          backup_file=$(find /tmp/ecc-ci-backups -maxdepth 1 -type f -name 'ecc-postgres-*.dump' -print -quit)
+          backup_file=$(find /tmp/ecc-ci-backups -maxdepth 1 -type f -name 'ecc-postgres-*.dump.age' -print -quit)
           test -n "$backup_file"
 
           docker compose exec -T db psql -U ecc -d ecc -v ON_ERROR_STOP=1 \
