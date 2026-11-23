@@ -1542,3 +1542,43 @@ def test_maintenance_create_integrity_error_rolls_back_without_audit(
     assert client.get("/api/v1/maintenance-requests").json() == []
     actions = [event["action"] for event in client.get("/api/v1/audit-events").json()]
     assert "maintenance_request.created" not in actions
+
+def test_employee_create_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing_employee_ids = {
+        employee["id"] for employee in client.get("/api/v1/employees").json()
+    }
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_employee_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "employee.created":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_employee_audit)
+    response = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "EMP-ROLLBACK-001",
+            "full_name": "Rollback Employee",
+            "email": "rollback.employee@example.com",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Employee creation conflicts with current organization records"
+    )
+    employee_ids = {
+        employee["id"] for employee in client.get("/api/v1/employees").json()
+    }
+    audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert employee_ids == existing_employee_ids
+    assert audit_ids == existing_audit_ids
+
