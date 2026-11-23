@@ -159,23 +159,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function downloadAssetCsv(): Promise<Blob> {
-  const response = await fetch(\`${API_BASE}/api/v1/assets/export\`, {
-    headers: accessToken ? { Authorization: \`Bearer \${accessToken}\` } : {}
+  const response = await fetch(`${API_BASE}/api/v1/assets/export`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
   });
-  if (!response.ok) throw new Error(\`Ошибка API: \${response.status}\`);
+  if (!response.ok) throw new Error(`Ошибка API: ${response.status}`);
   return response.blob();
 }
 
 async function uploadAssetCsv(file: File): Promise<{ created: number; skipped: number; errors: { row: number; error: string }[] }> {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch(\`${API_BASE}/api/v1/assets/import\`, {
+  const response = await fetch(`${API_BASE}/api/v1/assets/import`, {
     method: "POST",
-    headers: accessToken ? { Authorization: \`Bearer \${accessToken}\` } : {},
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     body
   });
   if (!response.ok) {
-    let message = \`Ошибка API: \${response.status}\`;
+    let message = `Ошибка API: ${response.status}`;
     try {
       const result = await response.json();
       if (typeof result.detail === "string") message = result.detail;
