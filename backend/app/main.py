@@ -1419,9 +1419,16 @@ def delete_employee(
     ))
     if employee is None:
         raise HTTPException(status_code=404, detail="Employee not found")
-    record_audit(session, admin, "employee.deleted", "employee", employee.id)
-    session.delete(employee)
-    session.commit()
+    try:
+        record_audit(session, admin, "employee.deleted", "employee", employee.id)
+        session.delete(employee)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Employee deletion conflicts with current organization records",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
