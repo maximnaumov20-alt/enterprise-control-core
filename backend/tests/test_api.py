@@ -1205,3 +1205,29 @@ def test_audit_events_are_isolated_between_organizations(client: TestClient) -> 
         for event in events_a_after.json()
     )
     assert all(event["entity_id"] != asset_b_id for event in events_a_after.json())
+
+
+
+def test_audit_event_list_cannot_be_scoped_to_another_organization_by_query(client: TestClient) -> None:
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "Query Tenant A Asset", "asset_tag": "AUDIT-QUERY-A-001", "category": "Server"},
+    )
+    assert asset_a.status_code == 201
+    asset_a_id = str(asset_a.json()["id"])
+
+    use_role(client, "other_admin")
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "Query Tenant B Asset", "asset_tag": "AUDIT-QUERY-B-001", "category": "Laptop"},
+    )
+    assert asset_b.status_code == 201
+    asset_b_id = str(asset_b.json()["id"])
+
+    # The authenticated user's organization is authoritative; a caller-supplied
+    # organization_id query parameter must never expose another tenant's events.
+    response = client.get("/api/v1/audit-events", params={"organization_id": 1})
+    assert response.status_code == 200
+    event_ids = {event["entity_id"] for event in response.json()}
+    assert asset_b_id in event_ids
+    assert asset_a_id not in event_ids
