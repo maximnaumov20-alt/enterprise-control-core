@@ -20,7 +20,7 @@ import sys
 
 args = sys.argv[1:]
 state_path = pathlib.Path(os.environ["FAKE_AWS_STATE"])
-if args[:2] == ["s3", "cp"]:
+if args[:2] == ["s3", "cp"] and not args[2].startswith("s3://"):
     source = pathlib.Path(args[2])
     metadata_index = args.index("--metadata")
     checksum = args[metadata_index + 1].split("=", 1)[1]
