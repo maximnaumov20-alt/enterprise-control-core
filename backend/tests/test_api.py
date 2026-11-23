@@ -405,6 +405,38 @@ def test_asset_csv_import_export_and_formula_safety(client: TestClient) -> None:
     assert "'=HYPERLINK" in exported.text
 
 
+
+def test_asset_csv_import_aggregate_audit_conflict_rolls_back_batch(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = (
+        "name,asset_tag,category\\n"
+        "Imported laptop,CSV-AUDIT-ROLLBACK-001,Laptop\\n"
+    )
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_batch_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "asset.imported" and entity_type == "asset_import":
+            raise IntegrityError("audit insert", {}, Exception("simulated audit conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_batch_audit)
+    response = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", payload.encode("utf-8"), "text/csv")},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Asset import conflicts with current organization records"
+    assert client.get("/api/v1/assets").json() == []
+    assert {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    } == existing_audit_ids
+
+
 def test_asset_csv_import_is_role_and_tenant_scoped(client: TestClient) -> None:
     payload = "name,asset_tag,category\nScoped laptop,CSV-SCOPE,Laptop\n"
     use_role(client, "viewer")
