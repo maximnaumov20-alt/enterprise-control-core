@@ -733,6 +733,7 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
 
     # Create equivalent records in Company B.
     use_role(client, "other_admin")
+    user_b_id = client.get("/api/v1/auth/me").json()["id"]
     department_b = client.post(
         "/api/v1/departments", json={"name": "B Operations", "code": "B-OPS"}
     ).json()
@@ -792,8 +793,7 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
     use_role(client, "admin")
     events_a = client.get("/api/v1/audit-events").json()
     assert events_a
-    assert all(event["actor_user_id"] != client.app.state.test_tokens.get("other_admin_user_id")
-               for event in events_a)
+    assert all(event["actor_user_id"] != user_b_id for event in events_a)
     assert any(event["entity_id"] == department_a["id"] for event in events_a)
     assert any(event["entity_id"] == employee_a["id"] for event in events_a)
     assert any(event["entity_id"] == license_a["id"] for event in events_a)
