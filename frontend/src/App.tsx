@@ -29,6 +29,10 @@ export default function App() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [userForm, setUserForm] = useState({ email: "", full_name: "", password: "", role: "viewer" as UserRole });
   const [userSaving, setUserSaving] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   async function loadAssets(term = search) {
     setLoading(true);
@@ -76,6 +80,21 @@ export default function App() {
     setToken(null);
     setCurrentUser(null);
     resetForm();
+  }
+
+  async function submitPasswordChange(event: FormEvent) {
+    event.preventDefault();
+    setPasswordSaving(true);
+    setError("");
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setShowPasswordForm(false);
+      setError("Пароль успешно изменён.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось изменить пароль");
+    } finally { setPasswordSaving(false); }
   }
 
   async function openUsers() {
@@ -189,7 +208,13 @@ export default function App() {
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      {showPasswordForm && <div className="modal-overlay"><form className="modal-card" onSubmit={submitPasswordChange}>
+        <div className="panel-heading"><div><h2>Смена пароля</h2><p>Новый пароль должен содержать не менее 12 символов</p></div><button type="button" className="subtle" onClick={() => setShowPasswordForm(false)}>Закрыть</button></div>
+        <label>Текущий пароль<input type="password" required autoComplete="current-password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} /></label>
+        <label>Новый пароль<input type="password" required minLength={12} maxLength={128} autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} /></label>
+        <button className="primary" type="submit" disabled={passwordSaving}>{passwordSaving ? "Сохранение..." : "Изменить пароль"}</button>
+      </form></div>}
+      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
       {section === "assets" && <>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
 
