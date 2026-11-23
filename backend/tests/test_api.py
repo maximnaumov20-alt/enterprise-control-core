@@ -314,7 +314,7 @@ def test_asset_csv_import_export_and_formula_safety(client: TestClient) -> None:
     csv_data = (
         "name,asset_tag,category,manufacturer,model,serial_number,assigned_to,status\n"
         "Imported laptop,CSV-001,Laptop,Example,Model A,SN-CSV-001,Alex,active\n"
-        'Formula device,CSV-002,Laptop,"=HYPERLINK(""https://example.invalid"")",,,active\n'
+        'Formula device,CSV-002,Laptop,"=HYPERLINK(""https://example.invalid"")",,,,active\n'
     )
     imported = client.post(
         "/api/v1/assets/import",
