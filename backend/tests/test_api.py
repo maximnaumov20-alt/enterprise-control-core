@@ -1582,3 +1582,38 @@ def test_employee_create_integrity_error_rolls_back_without_audit(
     assert employee_ids == existing_employee_ids
     assert audit_ids == existing_audit_ids
 
+def test_software_license_create_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_license_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "software_license.created":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_license_audit)
+    response = client.post(
+        "/api/v1/software-licenses",
+        json={
+            "name": "Rollback License",
+            "license_type": "subscription",
+            "license_reference": "ROLLBACK-LICENSE-001",
+            "seats_total": 10,
+            "seats_used": 2,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Software license creation conflicts with current organization records"
+    )
+    assert client.get("/api/v1/software-licenses").json() == []
+    audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert audit_ids == existing_audit_ids
+
