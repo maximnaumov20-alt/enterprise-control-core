@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ecc
       POSTGRES_USER: ecc
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ecc-local-development-only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - ecc-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -18,11 +18,39 @@ services:
     build: .
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:-ecc-local-development-only}@db:5432/ecc
+      DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/ecc
     depends_on:
       db:
         condition: service_healthy
     restart: "no"
+
+  bootstrap-admin:
+    build: .
+    command: ["python", "-m", "app.create_admin"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/ecc
+      ECC_ADMIN_EMAIL: ${ECC_ADMIN_EMAIL:?Set ECC_ADMIN_EMAIL in .env}
+      ECC_ADMIN_PASSWORD: ${ECC_ADMIN_PASSWORD:?Set ECC_ADMIN_PASSWORD in .env}
+      ECC_ADMIN_NAME: ${ECC_ADMIN_NAME:-ECC Administrator}
+      ECC_ORGANIZATION_NAME: ${ECC_ORGANIZATION_NAME:-Default Organization}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/ecc
+      ECC_SECRET_KEY: ${ECC_SECRET_KEY:?Set ECC_SECRET_KEY in .env}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-20}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    ports:
+      - "8000:8000"
+    depends_on:
+      bootstrap-admin:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
@@ -30,18 +58,6 @@ services:
       - "5173:5173"
     depends_on:
       - api
-    restart: unless-stopped
-
-  api:
-    build: .
-    environment:
-      DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:-ecc-local-development-only}@db:5432/ecc
-      CORS_ORIGINS: http://localhost:5173
-    ports:
-      - "8000:8000"
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
