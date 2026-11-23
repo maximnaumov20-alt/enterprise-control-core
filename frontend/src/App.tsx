@@ -48,6 +48,9 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [assetImportFile, setAssetImportFile] = useState<File | null>(null);
+  const [assetImporting, setAssetImporting] = useState(false);
+  const [assetImportSummary, setAssetImportSummary] = useState<{ created: number; skipped: number; errors: { row: number; error: string }[] } | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [apiOnline, setApiOnline] = useState(false);
@@ -374,6 +377,36 @@ export default function App() {
     } finally { setSaving(false); }
   }
 
+  async function exportAssets() {
+    setError("");
+    try {
+      const blob = await api.exportAssetsCsv();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "ecc-assets.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось экспортировать активы"); }
+  }
+
+  async function importAssets() {
+    if (!assetImportFile) return;
+    if (!window.confirm(\`Импортировать активы из файла «\${assetImportFile.name}»? Дубликаты будут пропущены.\`)) return;
+    setAssetImporting(true);
+    setError("");
+    setAssetImportSummary(null);
+    try {
+      const result = await api.importAssetsCsv(assetImportFile);
+      setAssetImportSummary(result);
+      setAssetImportFile(null);
+      await loadAssets();
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось импортировать активы"); }
+    finally { setAssetImporting(false); }
+  }
+
   async function removeAsset(asset: Asset) {
     if (!window.confirm(`Удалить оборудование «${asset.name}»?`)) return;
     try {
@@ -427,6 +460,21 @@ export default function App() {
         <div className="stat-card"><span>Всего в реестре</span><strong>{counts.total}</strong><small>Записей по текущему запросу</small></div>
         <div className="stat-card"><span>В эксплуатации</span><strong>{counts.active}</strong><small>Активное оборудование</small></div>
         <div className="stat-card"><span>В ремонте</span><strong>{counts.repair}</strong><small>Требует обслуживания</small></div>
+      </section>
+
+      <section className="panel transfer-panel">
+        <div className="panel-heading"><div><h2>Импорт и экспорт</h2><p>CSV, UTF-8 · до 5 000 строк за импорт · дубликаты пропускаются</p></div>
+          <button type="button" className="subtle" onClick={() => void exportAssets()}>Экспорт CSV</button>
+        </div>
+        {currentUser.role !== "viewer" && <div className="transfer-actions">
+          <label>Файл CSV<input type="file" accept=".csv,text/csv" onChange={e => { setAssetImportFile(e.target.files?.[0] || null); setAssetImportSummary(null); }} /></label>
+          <button type="button" className="primary" disabled={!assetImportFile || assetImporting} onClick={() => void importAssets()}>{assetImporting ? "Импорт..." : "Импортировать"}</button>
+        </div>}
+        {assetImportSummary && <div className="import-summary">
+          <strong>Создано: {assetImportSummary.created} · Пропущено: {assetImportSummary.skipped}</strong>
+          {assetImportSummary.errors.length > 0 && <ul>{assetImportSummary.errors.slice(0, 20).map((item, index) => <li key={index}>Строка {item.row}: {item.error}</li>)}</ul>}
+          {assetImportSummary.errors.length > 20 && <small>Показаны первые 20 ошибок из {assetImportSummary.errors.length}.</small>}
+        </div>}
       </section>
 
       {currentUser.role !== "viewer" && <section className="panel" id="asset-form">
