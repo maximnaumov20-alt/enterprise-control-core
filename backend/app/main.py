@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -103,18 +102,10 @@ def get_session():
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    # Development bootstrap only. Replace with versioned migrations before production.
-    Base.metadata.create_all(bind=engine)
-    yield
-
-
 app = FastAPI(
     title="Enterprise Control Center API",
     version="0.1.0",
     description="Early-development API for enterprise IT asset inventory.",
-    lifespan=lifespan,
 )
 
 allowed_origins = [
