@@ -108,14 +108,21 @@ jobs:
           docker compose config --format json | python -c '
           import json, sys
           config = json.load(sys.stdin)
-          ports = config["services"]["frontend"]["ports"]
-          assert any(
+          services = config["services"]
+          frontend_ports = services["frontend"].get("ports", [])
+          assert len(frontend_ports) == 1, f"Expected one published frontend port: {frontend_ports}"
+          port = frontend_ports[0]
+          assert (
               port.get("target") == 80
               and str(port.get("published")) == "5173"
               and port.get("host_ip") == "127.0.0.1"
-              for port in ports
-          ), f"Frontend must bind to loopback by default: {ports}"
+          ), f"Frontend must bind to loopback by default: {frontend_ports}"
+          for name in ("db", "migrate", "bootstrap-admin", "redis", "api"):
+              published = services[name].get("ports", [])
+              assert not published, f"{name} must not publish host ports: {published}"
+          assert "8000" in services["api"].get("expose", []), "API must remain reachable on the private Compose network"
           '
+
           rm .env
 
       - name: Build API image
