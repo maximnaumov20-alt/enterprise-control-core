@@ -65,7 +65,7 @@ docker compose up --build
 
 The API requires a bearer token. Docker Compose applies migrations and creates the first organization administrator before starting the API. See [Access control and organization administration](docs/ACCESS_CONTROL.md), [Security policy](docs/SECURITY.md) and [Database migrations and backups](docs/DATABASE.md) for details.
 
-Open the local web interface at http://127.0.0.1:5173. The frontend gateway binds to loopback by default; the API, PostgreSQL and Redis are kept off published host ports. Its interactive documentation is available at http://127.0.0.1:5173/docs. For a future controlled deployment behind a same-host TLS reverse proxy, see [Production deployment checklist](docs/PRODUCTION-DEPLOYMENT.md).
+Open the local web interface at http://127.0.0.1:5173. The frontend gateway binds to loopback by default; the API, PostgreSQL and Redis are kept off published host ports. Upstream proxy trust is disabled by default and can be enabled only for explicit source CIDRs using `ECC_TRUSTED_PROXY_CIDRS`. Its interactive documentation is available at http://127.0.0.1:5173/docs. For a future controlled deployment behind a same-host TLS reverse proxy, see [Production deployment checklist](docs/PRODUCTION-DEPLOYMENT.md).
 
 Database schema changes are managed with Alembic. See [Database migrations and backups](docs/DATABASE.md) for migration, backup and restore instructions.
 
