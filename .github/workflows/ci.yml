@@ -119,5 +119,8 @@ jobs:
           done
           curl --fail http://localhost:8000/health
           curl --fail http://localhost:5173/
+          curl --fail http://localhost:5173/health
+          auth_status=$(curl --silent --output /dev/null --write-out "%{http_code}" http://localhost:5173/api/v1/assets)
+          test "$auth_status" = "401"
           docker compose exec -T api alembic current
           docker compose down --volumes
