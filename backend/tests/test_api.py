@@ -1354,3 +1354,86 @@ def test_noop_employee_update_does_not_create_audit_event(client: TestClient) ->
     after = client.get("/api/v1/audit-events")
     assert after.status_code == 200
     assert [event["id"] for event in after.json()] == before_ids
+
+def test_noop_maintenance_update_does_not_create_audit_event(client: TestClient) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Maintenance host", "asset_tag": "MAINT-NOOP-01", "category": "Server"},
+    ).json()
+    created = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset["id"],
+            "title": "Check cooling",
+            "description": "Inspect the cooling system.",
+        },
+    )
+    assert created.status_code == 201
+    request_id = created.json()["id"]
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    unchanged = client.patch(
+        f"/api/v1/maintenance-requests/{request_id}",
+        json={"title": "Check cooling", "status": "open"},
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()["resolved_at"] is None
+
+    after = client.get("/api/v1/audit-events")
+    assert [event["id"] for event in after.json()] == before_ids
+
+    resolved = client.patch(
+        f"/api/v1/maintenance-requests/{request_id}",
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200
+    resolved_at = resolved.json()["resolved_at"]
+    assert resolved_at is not None
+
+    before_repeat = client.get("/api/v1/audit-events")
+    before_repeat_ids = [event["id"] for event in before_repeat.json()]
+    repeated = client.patch(
+        f"/api/v1/maintenance-requests/{request_id}",
+        json={"status": "resolved"},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["resolved_at"] == resolved_at
+    after_repeat = client.get("/api/v1/audit-events")
+    assert [event["id"] for event in after_repeat.json()] == before_repeat_ids
+
+
+def test_noop_software_license_update_does_not_create_audit_event(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/software-licenses",
+        json={
+            "name": "Office Suite",
+            "license_type": "subscription",
+            "license_reference": "NOOP-LICENSE-001",
+            "seats_total": 20,
+            "seats_used": 5,
+        },
+    )
+    assert created.status_code == 201
+    license_id = created.json()["id"]
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    unchanged = client.patch(
+        f"/api/v1/software-licenses/{license_id}",
+        json={
+            "name": " Office Suite ",
+            "license_reference": " NOOP-LICENSE-001 ",
+            "seats_total": 20,
+            "seats_used": 5,
+        },
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()["name"] == "Office Suite"
+
+    after = client.get("/api/v1/audit-events")
+    assert [event["id"] for event in after.json()] == before_ids
