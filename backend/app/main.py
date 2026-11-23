@@ -1316,13 +1316,16 @@ def delete_department(
     )
     if assigned_employee_id is not None:
         raise HTTPException(status_code=409, detail="Department is assigned to employees")
-    record_audit(session, admin, "department.deleted", "department", department.id)
-    session.delete(department)
     try:
+        record_audit(session, admin, "department.deleted", "department", department.id)
+        session.delete(department)
         session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Department is assigned to employees")
+        raise HTTPException(
+            status_code=409,
+            detail="Department deletion conflicts with current organization records",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
