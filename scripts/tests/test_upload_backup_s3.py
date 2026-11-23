@@ -28,8 +28,17 @@ if args[:2] == ["s3", "cp"]:
         "checksum": checksum,
         "size": source.stat().st_size,
         "args": args,
+        "source": str(source),
     }
     state_path.write_text(json.dumps(state), encoding="utf-8")
+    raise SystemExit(0)
+if args[:2] == ["s3", "cp"] and args[2].startswith("s3://"):
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    destination = pathlib.Path(args[3])
+    payload = pathlib.Path(state["source"]).read_bytes()
+    if os.environ.get("FAKE_AWS_MODE") == "bad-readback":
+        payload = payload + b"corruption"
+    destination.write_bytes(payload)
     raise SystemExit(0)
 if args[:2] == ["s3api", "head-object"]:
     state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -80,7 +89,7 @@ class S3UploaderTests(unittest.TestCase):
     def test_upload_and_metadata_verification_succeed(self) -> None:
         result = self.run_uploader()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Encrypted backup uploaded and verified", result.stdout)
+        self.assertIn("Encrypted backup uploaded and read-back verified", result.stdout)
         state = json.loads(self.state.read_text(encoding="utf-8"))
         self.assertIn("s3://ecc-test-bucket/nightly/test-backup.dump.age", state["args"])
 
@@ -95,6 +104,12 @@ class S3UploaderTests(unittest.TestCase):
         result = self.run_uploader()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Remote verification failed", result.stderr)
+
+    def test_downloaded_bytes_mismatch_is_rejected(self) -> None:
+        self.env["FAKE_AWS_MODE"] = "bad-readback"
+        result = self.run_uploader()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Remote read-back verification failed", result.stderr)
 
     def test_plaintext_dump_is_rejected_before_aws_call(self) -> None:
         plaintext = self.base / "backup.dump"
