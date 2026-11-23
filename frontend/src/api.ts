@@ -54,7 +54,7 @@ export interface TokenResponse {
   expires_in: number;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL || "";
 let accessToken: string | null = null;
 
 export function setAccessToken(token: string | null) {
