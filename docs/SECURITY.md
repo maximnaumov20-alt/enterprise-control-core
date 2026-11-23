@@ -11,7 +11,8 @@ ECC is an early-development project. Authentication, role checks, organization-s
 - The API container runs as a non-root user, has a health check and is not published directly to the host in the Compose deployment; browser traffic reaches it through the Nginx gateway.
 - The production frontend is served by Nginx with a same-origin API reverse proxy and baseline content-type, frame, referrer and content-security-policy headers.
 - Roles are `admin`, `editor` and `viewer`. The API enforces permissions server-side.
-- Asset reads and writes are scoped to the authenticated user's organization. Organization IDs are never accepted from asset request bodies.
+- Asset and software licence reads and writes are scoped to the authenticated user's organization. Organization IDs are never accepted from client request bodies.
+- Software licence records store external contract references, not activation keys or other secrets.
 - Asset inventory identifiers are unique within an organization rather than globally.
 - Basic audit events are recorded for asset and user changes and are visible only to organization administrators.
 - Users can change their password after authenticating; new passwords must be at least 12 characters.
