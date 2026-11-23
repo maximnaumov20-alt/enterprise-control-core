@@ -2,38 +2,57 @@ name: Generate Python dependency locks
 
 on:
   push:
-    branches: [automation/split-python-runtime-dev]
+    branches: [main]
+    paths:
+      - "backend/requirements-runtime.in"
+      - "backend/requirements-dev.in"
+      - ".github/workflows/python-dependency-locks.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   compile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out main
+        uses: actions/checkout@v4
         with:
-          ref: automation/split-python-runtime-dev
-      - uses: actions/setup-python@v5
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install pinned lock tooling
         run: |
           python -m pip install --upgrade pip==25.2
           python -m pip install pip-tools==7.5.1
+
       - name: Compile runtime and development locks
         run: |
           pip-compile --resolver=backtracking --generate-hashes --output-file=backend/requirements-runtime.lock backend/requirements-runtime.in
           pip-compile --resolver=backtracking --generate-hashes --output-file=backend/requirements-dev.lock backend/requirements-dev.in
-      - name: Commit generated lock files
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/requirements-runtime.lock backend/requirements-dev.lock
-          if git diff --cached --quiet; then
-            echo "Lock files are already current"
-            exit 0
-          fi
-          git commit -m "build(backend): split runtime and development dependency locks"
-          git push origin HEAD:automation/split-python-runtime-dev
+
+      - name: Create or update dependency-lock pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/update-python-dependency-locks
+          delete-branch: true
+          commit-message: "build(backend): refresh hash-pinned dependency locks"
+          title: "build: refresh Python dependency locks"
+          body: |
+            Automated update of the hash-pinned Python runtime and development dependency locks.
+
+            Generated from:
+            - backend/requirements-runtime.in
+            - backend/requirements-dev.in
+
+            The lock files are compiled with pinned pip-tools and include package hashes.
+          add-paths: |
+            backend/requirements-runtime.lock
+            backend/requirements-dev.lock
