@@ -9,7 +9,9 @@ ECC is not production-ready. This document records the minimum deployment bounda
 - Configure the proxy to forward requests to the loopback frontend port. Do not expose the API (8000), PostgreSQL (5432), or Redis (6379) to the public network.
 - If the reverse proxy is on another host, use a private network or VPN and firewall the frontend listener to that proxy's source addresses. Only then set `ECC_FRONTEND_BIND_ADDRESS` to an appropriate private interface address. Do not bind to all interfaces without matching firewall rules.
 - Set `CORS_ORIGINS` to the exact HTTPS origin(s) used by the browser. Do not use wildcard origins with authenticated requests.
-- The API trusts `X-Real-IP` only from the supplied Nginx gateway, which overwrites the header. Preserve that trust boundary; do not publish the API port or place an untrusted proxy in front of it.
+- The frontend Nginx gateway overwrites `X-Real-IP` before forwarding it to the API. By default it trusts no upstream proxy headers and uses the direct TCP peer address.
+- If another reverse proxy or load balancer connects directly to the frontend, set `ECC_TRUSTED_PROXY_CIDRS` to the exact source IP/CIDR ranges of those proxy hops. The gateway only trusts `X-Forwarded-For` from those configured networks; it recursively resolves the client address and then replaces the identity headers sent to the API.
+- Configure every trusted upstream proxy to sanitize/overwrite `X-Forwarded-For`, and restrict network access to the frontend listener so only the intended proxy can connect. Never trust `0.0.0.0/0`, `::/0`, arbitrary client networks, or ranges shared with untrusted workloads. If the proxy source range cannot be pinned down, leave the setting empty and accept that rate limiting will see the proxy address rather than individual clients.
 
 ## Secrets and identity
 
@@ -36,9 +38,11 @@ For a same-host reverse proxy, retain the defaults in `.env`:
 ECC_FRONTEND_BIND_ADDRESS=127.0.0.1
 ECC_FRONTEND_PORT=5173
 CORS_ORIGINS=https://ecc.example.com
+# Optional: only if the TLS proxy's source address is fixed and verified.
+# ECC_TRUSTED_PROXY_CIDRS=172.20.0.1/32
 ```
 
-The reverse proxy should connect to `http://127.0.0.1:5173` and provide HTTPS to clients. The application itself does not configure certificates or TLS.
+The reverse proxy should connect to `http://127.0.0.1:5173` and provide HTTPS to clients. The application itself does not configure certificates or TLS. Determine the source address that the frontend container actually sees before configuring `ECC_TRUSTED_PROXY_CIDRS`; do not copy the illustrative address above without verifying the Docker network and firewall topology. The upstream proxy must overwrite incoming `X-Forwarded-For` with a sanitized client/proxy chain.
 
 For local development, `CORS_ORIGINS=http://localhost:5173` remains suitable. The frontend is reachable at `http://127.0.0.1:5173` on the Docker host.
 
