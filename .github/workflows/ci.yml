@@ -13,7 +13,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      PYTHONPATH: backend
+      PYTHONPATH: .
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
