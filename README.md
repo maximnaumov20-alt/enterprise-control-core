@@ -84,7 +84,8 @@ frontend/
 docs/
   ROADMAP.md
   SECURITY.md
-  DATABASE.md\n  ACCESS_CONTROL.md
+  DATABASE.md
+  ACCESS_CONTROL.md
 docker-compose.yml
 Dockerfile
 
