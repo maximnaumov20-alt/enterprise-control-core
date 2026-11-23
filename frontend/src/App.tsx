@@ -34,6 +34,10 @@ export default function App() {
       setError("");
     } catch (e) {
       setApiOnline(false);
+      if (e instanceof Error && (e.message.includes("token") || e.message.includes("401"))) {
+        setToken(null);
+        setCurrentUser(null);
+      }
       setError(e instanceof Error ? e.message : "Не удалось загрузить данные");
     } finally { setLoading(false); }
   }
@@ -138,11 +142,11 @@ export default function App() {
       <div className="nav-item disabled"><span>♙</span> Сотрудники <small>скоро</small></div>
       <div className="nav-item disabled"><span>▤</span> Программное обеспечение</div>
       <div className="nav-item disabled"><span>⚙</span> Обслуживание</div>
-      <div className="sidebar-bottom"><span className={apiOnline ? "dot online" : "dot"} /> API {apiOnline ? "подключён" : "не подключён"}<small>Версия 0.1.0 · ранняя сборка</small></div>
+      <div className="sidebar-bottom"><span className={apiOnline ? "dot online" : "dot"} /> API {apiOnline ? "подключён" : "не подключён"}<small>Версия 0.2.0 · ранняя сборка</small></div>
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> Оборудование</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {currentUser.role}</small></div><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> Оборудование</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={logout}>Выйти</button></div></header>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
 
       <section className="stats">
@@ -173,7 +177,7 @@ export default function App() {
         {error && <div className="alert">{error}<button onClick={() => void loadAssets()}>Повторить</button></div>}
         {loading ? <div className="empty">Загрузка данных...</div> : assets.length === 0 ? <div className="empty">Активы не найдены. Добавьте первую запись в форму выше.</div> :
           <div className="table-wrap"><table><thead><tr><th>ОБОРУДОВАНИЕ</th><th>ИНВ. НОМЕР</th><th>КАТЕГОРИЯ</th><th>ОТВЕТСТВЕННЫЙ</th><th>СТАТУС</th><th></th></tr></thead><tbody>
-            {assets.map(asset => <tr key={asset.id}><td><strong>{asset.name}</strong><small>{[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "Производитель не указан"}</small></td><td className="mono">{asset.asset_tag}</td><td>{asset.category}</td><td>{asset.assigned_to || "—"}</td><td><span className={`status status-${asset.status}`}>{statusLabels[asset.status]}</span></td>{currentUser.role !== "viewer" && <td className="actions"><button title="Редактировать" onClick={() => beginEdit(asset)}>Изменить</button><button className="danger" title="Удалить" onClick={() => void removeAsset(asset)}>Удалить</button></td>}</tr>)}
+            {assets.map(asset => <tr key={asset.id}><td><strong>{asset.name}</strong><small>{[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "Производитель не указан"}</small></td><td className="mono">{asset.asset_tag}</td><td>{asset.category}</td><td>{asset.assigned_to || "—"}</td><td><span className={`status status-${asset.status}`}>{statusLabels[asset.status]}</span></td>{currentUser.role !== "viewer" ? <td className="actions"><button title="Редактировать" onClick={() => beginEdit(asset)}>Изменить</button><button className="danger" title="Удалить" onClick={() => void removeAsset(asset)}>Удалить</button></td> : <td />}</tr>)}
           </tbody></table></div>}
       </section>
       <footer>Enterprise Control Center <span>·</span> Community Edition <span>·</span> Незавершённая разработка</footer>
