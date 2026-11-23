@@ -118,5 +118,6 @@ jobs:
             sleep 2
           done
           curl --fail http://localhost:8000/health
+          curl --fail http://localhost:5173/
           docker compose exec -T api alembic current
           docker compose down --volumes
