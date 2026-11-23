@@ -158,6 +158,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function downloadAssetCsv(): Promise<Blob> {
+  const response = await fetch(\`${API_BASE}/api/v1/assets/export\`, {
+    headers: accessToken ? { Authorization: \`Bearer \${accessToken}\` } : {}
+  });
+  if (!response.ok) throw new Error(\`Ошибка API: \${response.status}\`);
+  return response.blob();
+}
+
+async function uploadAssetCsv(file: File): Promise<{ created: number; skipped: number; errors: { row: number; error: string }[] }> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(\`${API_BASE}/api/v1/assets/import\`, {
+    method: "POST",
+    headers: accessToken ? { Authorization: \`Bearer \${accessToken}\` } : {},
+    body
+  });
+  if (!response.ok) {
+    let message = \`Ошибка API: \${response.status}\`;
+    try {
+      const result = await response.json();
+      if (typeof result.detail === "string") message = result.detail;
+    } catch { /* response did not contain JSON */ }
+    if (response.status === 401) setAccessToken(null);
+    throw new Error(message);
+  }
+  return response.json();
+}
+
 export const api = {
   health: () => request<{ status: string }>("/health"),
   login: (email: string, password: string) =>
@@ -199,6 +227,8 @@ export const api = {
   deleteSoftwareLicense: (id: number) =>
     request<void>(`/api/v1/software-licenses/${id}`, { method: "DELETE" }),
   assets: (search = "") => request<Asset[]>(`/api/v1/assets?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`),
+  exportAssetsCsv: () => downloadAssetCsv(),
+  importAssetsCsv: (file: File) => uploadAssetCsv(file),
   createAsset: (asset: AssetInput) => request<Asset>("/api/v1/assets", { method: "POST", body: JSON.stringify(asset) }),
   updateAsset: (id: number, asset: Partial<AssetInput>) => request<Asset>(`/api/v1/assets/${id}`, { method: "PATCH", body: JSON.stringify(asset) }),
   deleteAsset: (id: number) => request<void>(`/api/v1/assets/${id}`, { method: "DELETE" })
