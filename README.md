@@ -33,6 +33,7 @@ python -m venv .venv
 # macOS/Linux:
 source .venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -46,12 +47,17 @@ docker compose up --build
 
 Open the web interface at http://localhost:5173. The API is available at http://localhost:8000 and its interactive documentation at http://localhost:8000/docs.
 
+Database schema changes are managed with Alembic. See [Database migrations and backups](docs/DATABASE.md) for migration, backup and restore instructions.
+
 ## Project structure
 
 ```
 backend/
   app/
     main.py
+  migrations/
+    versions/
+  alembic.ini
   requirements.txt
 frontend/
   src/
