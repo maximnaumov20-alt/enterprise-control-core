@@ -20,11 +20,17 @@ The initial development scope is:
 - **API:** REST, documented by OpenAPI at `/docs`
 - **Deployment:** Docker Compose, non-root API container, Nginx static frontend and same-origin API proxy
 
-The current development build includes a tenant-scoped asset, software licence and maintenance request APIs, bearer-token authentication, admin/editor/viewer roles, organization user administration, basic audit history and a React interface with sign-in, password change and role-aware controls. Department and employee directory APIs and the administrator/operator interface are now included.
+The current development build includes tenant-scoped asset, software licence and maintenance request APIs, bearer-token authentication, admin/editor/viewer roles, organization user administration, basic audit history and a React interface with sign-in, password change and role-aware controls. Department and employee directory APIs and the administrator/operator interface are also included.
 
 ## Run locally
 
 Requirements: Python 3.12+.
+
+The repository maintains separate, hash-pinned Python dependency locks:
+- `backend/requirements-runtime.lock`: production runtime dependencies, installed in the API Docker image.
+- `backend/requirements-dev.lock`: runtime dependencies plus pytest and httpx for local development and CI.
+
+For local development, install the development lock:
 
 ```bash
 cd backend
@@ -32,7 +38,7 @@ python -m venv .venv
 # Windows: .venv\\Scripts\\activate
 # macOS/Linux:
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements-dev.lock
 alembic upgrade head
 
 # macOS/Linux: generate a signing key and set the initial admin credentials.
@@ -63,22 +69,30 @@ Open the web interface at http://localhost:5173. The API is kept private inside 
 
 Database schema changes are managed with Alembic. See [Database migrations and backups](docs/DATABASE.md) for migration, backup and restore instructions.
 
+## Dependency lock maintenance
+
+The source input files are `backend/requirements-runtime.in` and `backend/requirements-dev.in`. The GitHub Actions workflow `Python Dependency Locks` compiles both hash-pinned lock files with pinned pip-tools and commits updated lock files to its branch. To reproduce the generation locally, install the same pinned pip-tools version used by the workflow, then run:
+
+```bash
+python -m pip install pip-tools==7.5.1
+pip-compile --resolver=backtracking --generate-hashes --output-file=backend/requirements-runtime.lock backend/requirements-runtime.in
+pip-compile --resolver=backtracking --generate-hashes --output-file=backend/requirements-dev.lock backend/requirements-dev.in
+```
+
+Do not install the obsolete combined `requirements.txt` file; it has been removed.
+
 ## Project structure
 
 ```
 backend/
   app/
-    main.py
-    create_admin.py
   migrations/
-    versions/
-  alembic.ini
-  requirements.txt
+  requirements-runtime.in
+  requirements-runtime.lock
+  requirements-dev.in
+  requirements-dev.lock
 frontend/
   src/
-    App.tsx
-    api.ts
-    style.css
   nginx.conf
   Dockerfile
   package.json
@@ -88,9 +102,15 @@ docs/
   DATABASE.md
   ACCESS_CONTROL.md
   licensing/
+scripts/
+  backup-postgres.sh
+  restore-postgres.sh
+  run-backup.sh
+  upload-backup-s3.sh
+.github/
+  workflows/
 docker-compose.yml
 Dockerfile
-
 ```
 
 ## Development principles
