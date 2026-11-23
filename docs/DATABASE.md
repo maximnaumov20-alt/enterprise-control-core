@@ -73,7 +73,7 @@ Encryption protects archive contents at rest but does not create an off-host cop
 
 ## Off-host upload to Amazon S3
 
-The optional uploader sends an already-encrypted `.dump.age` archive to an S3 bucket and verifies the uploaded object's recorded SHA-256 metadata and size. It refuses plaintext dumps.
+The optional uploader sends an already-encrypted `.dump.age` archive to an S3 bucket and verifies the uploaded object's recorded SHA-256 metadata and size, then downloads the object and compares the actual bytes with the local archive. It refuses plaintext dumps.
 
 Install AWS CLI v2 and configure credentials through an instance/task role or the standard AWS credential chain. Do not put access keys in the repository, script arguments, or committed environment files. The identity used by the job should have only the required `s3:PutObject` and `s3:HeadObject` permissions for the backup prefix.
 
@@ -88,9 +88,9 @@ The uploader uses S3-managed encryption (SSE-S3) by default. To use a customer-m
 
 Configure bucket versioning, lifecycle retention, public-access blocking, least-privilege policies and (where supported/required) Object Lock in the cloud account. Those bucket controls are infrastructure configuration and are not created by this script. Keep the age private identity separate from both the application host and the bucket. Periodically test downloading an object and restoring it in an isolated environment.
 
-The upload script verifies remote metadata and size, not a full read-back of the remote object. A successful upload is not proof of recoverability until a download, decryption and database restore test has succeeded.
+The upload script performs a full read-back and compares SHA-256 and byte size with the local archive. This confirms the bytes returned by the S3 endpoint at upload time, but it is not a restore drill or a guarantee of long-term durability. Periodic download, decryption and isolated database restore tests remain necessary.
 
-The CI suite also exercises the uploader offline with a fake AWS CLI: it checks the successful metadata/size path, rejects checksum and size mismatches, refuses plaintext archives, and validates SSE-KMS argument handling. This tests client-side behavior only; it does not contact AWS or prove provider-side durability.
+The CI suite also exercises the uploader offline with a fake AWS CLI: it checks successful upload/read-back, rejects metadata checksum and size mismatches plus corrupted downloaded bytes, refuses plaintext archives, and validates SSE-KMS argument handling. This tests client-side behavior only; it does not contact AWS or prove provider-side durability.
 
 ## Automated backup cycle
 
