@@ -370,11 +370,9 @@ def test_maintenance_assignment_cannot_cross_organizations(client: TestClient) -
             "description": "One switch port is down.",
         },
     ).json()
-    other_admin = client.app.state.test_tokens["other_admin"]
+    use_role(client, "other_admin")
+    other_id = client.get("/api/v1/auth/me").json()["id"]
     use_role(client, "admin")
-    users = client.get("/api/v1/users").json()
-    other_id = 4
-    assert other_admin
     response = client.patch(
         f"/api/v1/maintenance-requests/{request_record['id']}",
         json={"assigned_to_user_id": other_id},
