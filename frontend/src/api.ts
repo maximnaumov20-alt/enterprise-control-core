@@ -106,9 +106,10 @@ export interface SoftwareLicense {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  record_version: number;
 }
 
-export type SoftwareLicenseInput = Omit<SoftwareLicense, "id" | "created_at" | "updated_at">;
+export type SoftwareLicenseInput = Omit<SoftwareLicense, "id" | "created_at" | "updated_at" | "record_version">;
 
 export interface ManagedUser {
   id: number;
@@ -231,7 +232,7 @@ export const api = {
   softwareLicenses: () => request<SoftwareLicense[]>("/api/v1/software-licenses?limit=200"),
   createSoftwareLicense: (license: SoftwareLicenseInput) =>
     request<SoftwareLicense>("/api/v1/software-licenses", { method: "POST", body: JSON.stringify(license) }),
-  updateSoftwareLicense: (id: number, license: Partial<SoftwareLicenseInput>) =>
+  updateSoftwareLicense: (id: number, license: Partial<SoftwareLicenseInput> & { expected_version: number }) =>
     request<SoftwareLicense>(`/api/v1/software-licenses/${id}`, { method: "PATCH", body: JSON.stringify(license) }),
   deleteSoftwareLicense: (id: number) =>
     request<void>(`/api/v1/software-licenses/${id}`, { method: "DELETE" }),
