@@ -377,12 +377,15 @@ def create_user(
     admin: Annotated[User, Depends(require_roles(UserRole.admin))],
 ):
     normalized_email = str(payload.email).lower()
+    normalized_name = payload.full_name.strip()
+    if not normalized_name:
+        raise HTTPException(status_code=422, detail="Full name cannot be blank")
     if session.scalar(select(User).where(User.email == normalized_email)):
         raise HTTPException(status_code=409, detail="Email is already registered")
     user = User(
         organization_id=admin.organization_id,
         email=normalized_email,
-        full_name=payload.full_name.strip(),
+        full_name=normalized_name,
         password_hash=password_hash.hash(payload.password),
         role=payload.role,
     )
@@ -407,6 +410,13 @@ def update_user(
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
     changes = payload.model_dump(exclude_unset=True)
+    for required_field in ("full_name", "role", "is_active"):
+        if required_field in changes and changes[required_field] is None:
+            raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
+    if "full_name" in changes:
+        changes["full_name"] = changes["full_name"].strip()
+        if not changes["full_name"]:
+            raise HTTPException(status_code=422, detail="Full name cannot be blank")
     if target.id == admin.id and (
         changes.get("is_active") is False or changes.get("role") not in (None, UserRole.admin)
     ):
