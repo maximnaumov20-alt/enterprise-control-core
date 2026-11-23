@@ -90,6 +90,22 @@ Configure bucket versioning, lifecycle retention, public-access blocking, least-
 
 The upload script verifies remote metadata and size, not a full read-back of the remote object. A successful upload is not proof of recoverability until a download, decryption and database restore test has succeeded.
 
+## Automated backup cycle
+
+For a host that already runs the ECC Docker Compose stack, `scripts/run-backup.sh` performs one complete cycle: it requires age encryption and an S3 destination, creates and validates a fresh PostgreSQL archive, then uploads that exact new archive. It uses a non-blocking `flock` lock to prevent overlapping jobs and refuses to fall back to plaintext or silently upload an older retained archive.
+
+Example manual run:
+
+```bash
+ECC_BACKUP_AGE_RECIPIENT=age1... \
+ECC_BACKUP_S3_URI=s3://company-ecc-backups/production \
+  bash scripts/run-backup.sh
+```
+
+Schedule this command with the host's systemd timer or cron only after configuring a protected environment file outside the repository. The job identity needs Docker access, the age public recipient, and narrowly scoped AWS credentials (prefer an instance/task role). Keep the age private identity off the application host. Send stdout/stderr to the host's centralized logs and alert on non-zero exit status and missing expected runs. Do not place AWS access keys or the age private identity in the repository or timer unit.
+
+The repository does not enable a schedule on a real server: deployment host, service account, secrets storage, monitoring destination and backup window must be configured by the operator. A successful run confirms archive creation and S3 metadata/size checks only; it does not replace periodic download, decrypt and isolated restore drills.
+
 ## Restore
 
 Restore replaces database objects in the configured `ecc` database. Stop application writes first, confirm the Compose project points to the intended environment and preserve a separate backup of the current database.
