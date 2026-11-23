@@ -154,5 +154,16 @@ jobs:
             -d '{"status":"resolved"}' \
             "http://localhost:5173/api/v1/maintenance-requests/$maintenance_id"
 
+          department=$(curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
+            -d '{"name":"CI Operations","code":"CI-OPS"}' \
+            http://localhost:5173/api/v1/departments)
+          department_id=$(printf '%s' "$department" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+
+          curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
+            -d "{\"employee_number\":\"CI-EMP-001\",\"full_name\":\"CI Employee\",\"department_id\":$department_id,\"email\":\"ci.employee@example.com\"}" \
+            http://localhost:5173/api/v1/employees
+
           docker compose exec -T api alembic current
           docker compose down --volumes
