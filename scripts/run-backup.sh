@@ -29,7 +29,8 @@ if ! flock -n 9; then
   exit 1
 fi
 
-started_at="$(date +%s)"
+# Preserve sub-second precision: find -newermt is strict, so whole-second timestamps can miss a backup created in the same second.
+started_at="$(date +%s.%N)"
 ECC_BACKUP_DIR="$BACKUP_DIR" ECC_BACKUP_AGE_RECIPIENT="$RECIPIENT" \
   bash scripts/backup-postgres.sh
 
