@@ -202,6 +202,42 @@ jobs:
             http://localhost:5173/api/v1/assets)
           asset_id=$(printf '%s' "$asset" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 
+          # Verify optimistic locking with two independent SQLAlchemy sessions on PostgreSQL.
+          docker compose exec -T api python - "$asset_id" <<'PY'
+          import sys
+          from sqlalchemy.orm.exc import StaleDataError
+          from app.main import Asset, SessionLocal
+
+          asset_id = int(sys.argv[1])
+          first = SessionLocal()
+          second = SessionLocal()
+          try:
+              first_asset = first.get(Asset, asset_id)
+              second_asset = second.get(Asset, asset_id)
+              assert first_asset is not None and second_asset is not None
+              assert first_asset.version == second_asset.version
+
+              first_asset.name = "CI server updated by first transaction"
+              first.commit()
+
+              second_asset.name = "Stale concurrent overwrite"
+              try:
+                  second.commit()
+              except StaleDataError:
+                  second.rollback()
+              else:
+                  raise AssertionError("PostgreSQL accepted a stale concurrent asset update")
+
+              with SessionLocal() as verify:
+                  stored = verify.get(Asset, asset_id)
+                  assert stored is not None
+                  assert stored.name == "CI server updated by first transaction"
+                  assert stored.version == first_asset.version
+          finally:
+              first.close()
+              second.close()
+          PY
+
           curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
             -d '{"name":"CI software","license_type":"subscription","seats_total":10,"seats_used":2}' \
