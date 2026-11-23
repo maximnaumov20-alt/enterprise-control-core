@@ -389,7 +389,7 @@ export default function App() {
 
   async function applyBulkEdit() {
     if (selectedAssetIds.size === 0) return;
-    const payload: { asset_ids: number[]; status?: AssetStatus; assigned_to?: string | null } = {
+    const payload: { asset_ids: number[]; versions: Record<number, number>; status?: AssetStatus; assigned_to?: string | null } = {
       asset_ids: Array.from(selectedAssetIds),
       versions: Object.fromEntries(assets.filter((asset) => selectedAssetIds.has(asset.id)).map((asset) => [asset.id, asset.version]))
     };
