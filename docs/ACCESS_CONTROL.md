@@ -4,7 +4,10 @@
 
 | Capability | Admin | Editor | Viewer |
 |---|---:|---:|---:|
-| View assets and software licences in own organization | Yes | Yes | Yes |\n| Create maintenance requests | Yes | Yes | Yes |\n| View maintenance requests | All in organization | All in organization | Own requests only |\n| Change maintenance request status or assignee | Yes | Yes | No |
+| View assets and software licences in own organization | Yes | Yes | Yes |
+| Create maintenance requests | Yes | Yes | Yes |
+| View maintenance requests | All in organization | All in organization | Own requests only |
+| Change maintenance request status or assignee | Yes | Yes | No |
 | Create, edit and delete assets and software licences in own organization | Yes | Yes | No |
 | Create and manage users in own organization | Yes | No | No |
 | View own organization's audit events | Yes | No | No |
