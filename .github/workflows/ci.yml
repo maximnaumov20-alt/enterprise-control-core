@@ -124,5 +124,30 @@ jobs:
           curl --fail http://localhost:5173/health
           auth_status=$(curl --silent --output /dev/null --write-out "%{http_code}" http://localhost:5173/api/v1/assets)
           test "$auth_status" = "401"
+
+          admin_email=$(sed -n 's/^ECC_ADMIN_EMAIL=//p' .env)
+          admin_password=$(sed -n 's/^ECC_ADMIN_PASSWORD=//p' .env)
+          token=$(curl --fail --silent --show-error -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "username=$admin_email" \
+            --data-urlencode "password=$admin_password" \
+            http://localhost:5173/api/v1/auth/token | python -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+
+          asset=$(curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
+            -d '{"name":"CI server","asset_tag":"CI-SRV-001","category":"Server"}' \
+            http://localhost:5173/api/v1/assets)
+          asset_id=$(printf '%s' "$asset" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+
+          curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
+            -d '{"name":"CI software","license_type":"subscription","seats_total":10,"seats_used":2}' \
+            http://localhost:5173/api/v1/software-licenses
+
+          curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
+            -d "{\"asset_id\":$asset_id,\"title\":\"CI maintenance check\",\"description\":\"PostgreSQL integration smoke test\",\"priority\":\"normal\"}" \
+            http://localhost:5173/api/v1/maintenance-requests
+
           docker compose exec -T api alembic current
           docker compose down --volumes
