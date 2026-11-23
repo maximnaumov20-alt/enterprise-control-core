@@ -54,6 +54,11 @@ export default function App() {
   const [historyAsset, setHistoryAsset] = useState<Asset | null>(null);
   const [assetHistory, setAssetHistory] = useState<AssetHistoryEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<number>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState<"" | AssetStatus>("");
+  const [bulkAssignee, setBulkAssignee] = useState("");
+  const [bulkClearAssignee, setBulkClearAssignee] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [apiOnline, setApiOnline] = useState(false);
@@ -380,6 +385,40 @@ export default function App() {
     } finally { setSaving(false); }
   }
 
+  async function applyBulkEdit() {
+    if (selectedAssetIds.size === 0) return;
+    const payload: { asset_ids: number[]; status?: AssetStatus; assigned_to?: string | null } = {
+      asset_ids: Array.from(selectedAssetIds)
+    };
+    if (bulkStatus) payload.status = bulkStatus;
+    if (bulkClearAssignee) payload.assigned_to = null;
+    else if (bulkAssignee.trim()) payload.assigned_to = bulkAssignee.trim();
+    if (payload.status === undefined && payload.assigned_to === undefined) {
+      setError("Укажите новый статус или ответственного сотрудника.");
+      return;
+    }
+    const changes = [
+      payload.status ? `статус: ${statusLabels[payload.status]}` : "",
+      payload.assigned_to !== undefined
+        ? `ответственный: ${payload.assigned_to ?? "не назначен"}`
+        : ""
+    ].filter(Boolean).join(", ");
+    if (!window.confirm(`Применить изменения (${changes}) к ${selectedAssetIds.size} активам?`)) return;
+    setBulkSaving(true);
+    setError("");
+    try {
+      const result = await api.bulkUpdateAssets(payload);
+      setNotice(`Массовое редактирование завершено: изменено активов ${result.updated} из ${result.selected}.`);
+      setSelectedAssetIds(new Set());
+      setBulkStatus("");
+      setBulkAssignee("");
+      setBulkClearAssignee(false);
+      await loadAssets();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось выполнить массовое редактирование");
+    } finally { setBulkSaving(false); }
+  }
+
   async function openAssetHistory(asset: Asset) {
     setHistoryAsset(asset);
     setAssetHistory([]);
@@ -530,9 +569,20 @@ export default function App() {
       <section className="panel inventory">
         <div className="panel-heading"><div><h2>Реестр оборудования</h2><p>Список зарегистрированных активов</p></div><input className="search" value={search} onChange={e => { setSearch(e.target.value); void loadAssets(e.target.value); }} placeholder="⌕  Поиск по названию..." /></div>
         {error && <div className="alert">{error}<button onClick={() => void loadAssets()}>Повторить</button></div>}
+        {currentUser.role !== "viewer" && <div className="bulk-edit-panel">
+          <div className="panel-heading"><div><h3>Массовое редактирование</h3><p>Выбрано активов: {selectedAssetIds.size} · максимум 100 за операцию</p></div>
+            <button type="button" className="subtle" onClick={() => setSelectedAssetIds(new Set())} disabled={selectedAssetIds.size === 0}>Снять выделение</button>
+          </div>
+          <div className="bulk-edit-controls">
+            <label>Новый статус<select value={bulkStatus} onChange={e => setBulkStatus(e.target.value as "" | AssetStatus)}><option value="">Не менять</option><option value="active">В эксплуатации</option><option value="in_repair">В ремонте</option><option value="retired">Списано</option></select></label>
+            <label>Назначить ответственного<input maxLength={160} value={bulkAssignee} disabled={bulkClearAssignee} onChange={e => setBulkAssignee(e.target.value)} placeholder="ФИО сотрудника" /></label>
+            <label className="bulk-clear-option"><input type="checkbox" checked={bulkClearAssignee} onChange={e => { setBulkClearAssignee(e.target.checked); if (e.target.checked) setBulkAssignee(""); }} /> Очистить ответственного</label>
+            <button type="button" className="primary" disabled={bulkSaving || selectedAssetIds.size === 0 || (!bulkStatus && !bulkAssignee.trim() && !bulkClearAssignee)} onClick={() => void applyBulkEdit()}>{bulkSaving ? "Применение..." : "Применить к выбранным"}</button>
+          </div>
+        </div>}
         {loading ? <div className="empty">Загрузка данных...</div> : assets.length === 0 ? <div className="empty">Активы не найдены. Добавьте первую запись в форму выше.</div> :
-          <div className="table-wrap"><table><thead><tr><th>ОБОРУДОВАНИЕ</th><th>ИНВ. НОМЕР</th><th>КАТЕГОРИЯ</th><th>ОТВЕТСТВЕННЫЙ</th><th>СТАТУС</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
-            {assets.map(asset => <tr key={asset.id}><td><strong>{asset.name}</strong><small>{[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "Производитель не указан"}</small></td><td className="mono">{asset.asset_tag}</td><td>{asset.category}</td><td>{asset.assigned_to || "—"}</td><td><span className={`status status-${asset.status}`}>{statusLabels[asset.status]}</span></td><td className="actions"><button title="История изменений" onClick={() => void openAssetHistory(asset)}>История</button>{currentUser.role !== "viewer" && <><button title="Редактировать" onClick={() => beginEdit(asset)}>Изменить</button><button className="danger" title="Удалить" onClick={() => void removeAsset(asset)}>Удалить</button></>}</td></tr>)}
+          <div className="table-wrap"><table><thead><tr>{currentUser.role !== "viewer" && <th><input aria-label="Выбрать все отображаемые активы" type="checkbox" checked={assets.length > 0 && assets.every(asset => selectedAssetIds.has(asset.id))} onChange={e => setSelectedAssetIds(previous => { const next = new Set(previous); assets.forEach(asset => e.target.checked ? next.add(asset.id) : next.delete(asset.id)); return next; })} /></th>}<th>ОБОРУДОВАНИЕ</th><th>ИНВ. НОМЕР</th><th>КАТЕГОРИЯ</th><th>ОТВЕТСТВЕННЫЙ</th><th>СТАТУС</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
+            {assets.map(asset => <tr key={asset.id}>{currentUser.role !== "viewer" && <td><input aria-label={`Выбрать ${asset.asset_tag}`} type="checkbox" checked={selectedAssetIds.has(asset.id)} onChange={e => setSelectedAssetIds(previous => { const next = new Set(previous); if (e.target.checked) next.add(asset.id); else next.delete(asset.id); return next; })} /></td>}<td><strong>{asset.name}</strong><small>{[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "Производитель не указан"}</small></td><td className="mono">{asset.asset_tag}</td><td>{asset.category}</td><td>{asset.assigned_to || "—"}</td><td><span className={`status status-${asset.status}`}>{statusLabels[asset.status]}</span></td><td className="actions"><button title="История изменений" onClick={() => void openAssetHistory(asset)}>История</button>{currentUser.role !== "viewer" && <><button title="Редактировать" onClick={() => beginEdit(asset)}>Изменить</button><button className="danger" title="Удалить" onClick={() => void removeAsset(asset)}>Удалить</button></>}</td></tr>)}
           </tbody></table></div>}
       </section>
       <footer>Enterprise Control Center <span>·</span> Community Edition <span>·</span> Незавершённая разработка</footer>
