@@ -14,7 +14,7 @@
 - [ ] Departments and organization administration UI
 - [x] Tenant isolation and role-based access control
 - [ ] Asset import/export
-- [ ] Software and licence register
+- [x] Tenant-scoped software licence register
 - [ ] Maintenance requests
 - [x] Basic audit events
 - [x] Asset inventory web interface with sign-in and role-aware controls
