@@ -1288,7 +1288,7 @@ def test_audit_creation_details_exclude_sensitive_license_and_maintenance_fields
 
     maintenance_events = [
         event for event in events
-        if event["action"] == "maintenance.created"
+        if event["action"] == "maintenance_request.created"
         and event["entity_id"] == maintenance_id
     ]
     assert len(maintenance_events) == 1
