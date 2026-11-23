@@ -32,6 +32,35 @@ export interface Asset {
 
 export type AssetInput = Omit<Asset, "id" | "created_at" | "updated_at">;
 
+export interface Department {
+  id: number;
+  name: string;
+  code: string;
+  created_at: string;
+}
+
+export interface Employee {
+  id: number;
+  employee_number: string;
+  full_name: string;
+  department_id: number | null;
+  email: string | null;
+  job_title: string | null;
+  phone: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EmployeeInput = {
+  employee_number: string;
+  full_name: string;
+  department_id: number | null;
+  email: string | null;
+  job_title: string | null;
+  phone: string | null;
+};
+
 export interface MaintenanceRequest {
   id: number;
   asset_id: number;
@@ -148,6 +177,15 @@ export const api = {
   updateUser: (id: number, changes: { full_name?: string; role?: UserRole; is_active?: boolean }) =>
     request<ManagedUser>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
   auditEvents: (limit = 100) => request<AuditEvent[]>(`/api/v1/audit-events?limit=${limit}`),
+  departments: () => request<Department[]>("/api/v1/departments"),
+  createDepartment: (item: { name: string; code: string }) =>
+    request<Department>("/api/v1/departments", { method: "POST", body: JSON.stringify(item) }),
+  employees: (search = "") => request<Employee[]>(`/api/v1/employees${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+  createEmployee: (item: EmployeeInput) =>
+    request<Employee>("/api/v1/employees", { method: "POST", body: JSON.stringify(item) }),
+  updateEmployee: (id: number, item: Partial<EmployeeInput> & { is_active?: boolean }) =>
+    request<Employee>(`/api/v1/employees/${id}`, { method: "PATCH", body: JSON.stringify(item) }),
+  deleteEmployee: (id: number) => request<void>(`/api/v1/employees/${id}`, { method: "DELETE" }),
   maintenanceRequests: () => request<MaintenanceRequest[]>("/api/v1/maintenance-requests?limit=200"),
   createMaintenanceRequest: (item: MaintenanceRequestInput) =>
     request<MaintenanceRequest>("/api/v1/maintenance-requests", { method: "POST", body: JSON.stringify(item) }),
