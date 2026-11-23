@@ -1576,13 +1576,20 @@ def update_maintenance_request(
         audit_fields.add("resolved_at")
         request_record.resolved_at = resolved_at
     if changes or resolved_at_changed:
-        for field, value in changes.items():
-            setattr(request_record, field, value)
-        record_audit(
-            session, user, "maintenance_request.updated", "maintenance_request",
-            request_record.id, {"fields": sorted(audit_fields)},
-        )
-        session.commit()
+        try:
+            for field, value in changes.items():
+                setattr(request_record, field, value)
+            record_audit(
+                session, user, "maintenance_request.updated", "maintenance_request",
+                request_record.id, {"fields": sorted(audit_fields)},
+            )
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Maintenance request update conflicts with current organization records",
+            )
     session.refresh(request_record)
     return request_record
 
