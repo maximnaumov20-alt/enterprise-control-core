@@ -1594,14 +1594,17 @@ def create_software_license(
     session.add(license_record)
     try:
         session.flush()
+        record_audit(
+            session, user, "software_license.created", "software_license", license_record.id,
+            {"name": license_record.name, "license_type": license_record.license_type.value},
+        )
+        session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="License reference already exists")
-    record_audit(
-        session, user, "software_license.created", "software_license", license_record.id,
-        {"name": license_record.name, "license_type": license_record.license_type.value},
-    )
-    session.commit()
+        raise HTTPException(
+            status_code=409,
+            detail="Software license creation conflicts with current organization records",
+        )
     session.refresh(license_record)
     return license_record
 
