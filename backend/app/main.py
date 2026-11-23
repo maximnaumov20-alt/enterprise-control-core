@@ -80,6 +80,58 @@ class SoftwareLicenseStatus(str, Enum):
     retired = "retired"
 
 
+class Department(Base):
+    __tablename__ = "departments"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "id", name="uq_departments_org_id_id"),
+        UniqueConstraint("organization_id", "name", name="uq_departments_org_name"),
+        UniqueConstraint("organization_id", "code", name="uq_departments_org_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
+class Employee(Base):
+    __tablename__ = "employees"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "employee_number", name="uq_employees_org_number"),
+        UniqueConstraint("organization_id", "email", name="uq_employees_org_email"),
+        ForeignKeyConstraint(
+            ["organization_id", "department_id"],
+            ["departments.organization_id", "departments.id"],
+            ondelete="RESTRICT",
+            name="fk_employees_department_same_org",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    department_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    employee_number: Mapped[str] = mapped_column(String(40), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    job_title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
 class Organization(Base):
     __tablename__ = "organizations"
 
@@ -289,6 +341,55 @@ class AssetRead(BaseModel):
     serial_number: str | None
     assigned_to: str | None
     status: AssetStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class DepartmentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    code: str = Field(min_length=1, max_length=40)
+
+
+class DepartmentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    code: str | None = Field(default=None, min_length=1, max_length=40)
+
+
+class DepartmentRead(BaseModel):
+    id: int
+    name: str
+    code: str
+    created_at: datetime
+
+
+class EmployeeCreate(BaseModel):
+    employee_number: str = Field(min_length=1, max_length=40)
+    full_name: str = Field(min_length=1, max_length=160)
+    department_id: int | None = Field(default=None, gt=0)
+    email: EmailStr | None = None
+    job_title: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=40)
+
+
+class EmployeeUpdate(BaseModel):
+    employee_number: str | None = Field(default=None, min_length=1, max_length=40)
+    full_name: str | None = Field(default=None, min_length=1, max_length=160)
+    department_id: int | None = Field(default=None, gt=0)
+    email: EmailStr | None = None
+    job_title: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=40)
+    is_active: bool | None = None
+
+
+class EmployeeRead(BaseModel):
+    id: int
+    employee_number: str
+    full_name: str
+    department_id: int | None
+    email: EmailStr | None
+    job_title: str | None
+    phone: str | None
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -735,6 +836,219 @@ def delete_asset(
         raise HTTPException(status_code=404, detail="Asset not found")
     record_audit(session, user, "asset.deleted", "asset", asset.id, {"asset_tag": asset.asset_tag})
     session.delete(asset)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/api/v1/departments",
+    response_model=DepartmentRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["departments"],
+)
+def create_department(
+    payload: DepartmentCreate,
+    session: SessionDep,
+    admin: Annotated[User, Depends(require_roles(UserRole.admin))],
+):
+    values = {
+        "organization_id": admin.organization_id,
+        "name": payload.name.strip(),
+        "code": payload.code.strip().upper(),
+    }
+    if not values["name"] or not values["code"]:
+        raise HTTPException(status_code=422, detail="Department name and code cannot be blank")
+    department = Department(**values)
+    session.add(department)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Department name or code already exists")
+    record_audit(session, admin, "department.created", "department", department.id)
+    session.commit()
+    session.refresh(department)
+    return department
+
+
+@app.get("/api/v1/departments", response_model=list[DepartmentRead], tags=["departments"])
+def list_departments(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    return list(session.scalars(
+        select(Department).where(Department.organization_id == user.organization_id).order_by(Department.name)
+    ).all())
+
+
+@app.patch("/api/v1/departments/{department_id}", response_model=DepartmentRead, tags=["departments"])
+def update_department(
+    department_id: int,
+    payload: DepartmentUpdate,
+    session: SessionDep,
+    admin: Annotated[User, Depends(require_roles(UserRole.admin))],
+):
+    department = session.scalar(select(Department).where(
+        Department.id == department_id,
+        Department.organization_id == admin.organization_id,
+    ))
+    if department is None:
+        raise HTTPException(status_code=404, detail="Department not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for field in ("name", "code"):
+        if field in changes:
+            if changes[field] is None or not changes[field].strip():
+                raise HTTPException(status_code=422, detail=f"{field} cannot be blank")
+            changes[field] = changes[field].strip()
+    if "code" in changes:
+        changes["code"] = changes["code"].upper()
+    for field, value in changes.items():
+        setattr(department, field, value)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Department name or code already exists")
+    record_audit(session, admin, "department.updated", "department", department.id)
+    session.commit()
+    session.refresh(department)
+    return department
+
+
+@app.delete("/api/v1/departments/{department_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["departments"])
+def delete_department(
+    department_id: int,
+    session: SessionDep,
+    admin: Annotated[User, Depends(require_roles(UserRole.admin))],
+):
+    department = session.scalar(select(Department).where(
+        Department.id == department_id,
+        Department.organization_id == admin.organization_id,
+    ))
+    if department is None:
+        raise HTTPException(status_code=404, detail="Department not found")
+    record_audit(session, admin, "department.deleted", "department", department.id)
+    session.delete(department)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Department is assigned to employees")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/api/v1/employees",
+    response_model=EmployeeRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["employees"],
+)
+def create_employee(
+    payload: EmployeeCreate,
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    employee_number = payload.employee_number.strip()
+    full_name = payload.full_name.strip()
+    if not employee_number or not full_name:
+        raise HTTPException(status_code=422, detail="Employee number and full name cannot be blank")
+    if payload.department_id is not None and session.scalar(select(Department).where(
+        Department.id == payload.department_id,
+        Department.organization_id == user.organization_id,
+    )) is None:
+        raise HTTPException(status_code=422, detail="Department must belong to this organization")
+    employee = Employee(
+        organization_id=user.organization_id,
+        department_id=payload.department_id,
+        employee_number=employee_number,
+        full_name=full_name,
+        email=str(payload.email).lower() if payload.email else None,
+        job_title=payload.job_title,
+        phone=payload.phone,
+    )
+    session.add(employee)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Employee number or email already exists")
+    record_audit(session, user, "employee.created", "employee", employee.id)
+    session.commit()
+    session.refresh(employee)
+    return employee
+
+
+@app.get("/api/v1/employees", response_model=list[EmployeeRead], tags=["employees"])
+def list_employees(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+    search: Annotated[str | None, Query(max_length=120)] = None,
+):
+    statement = select(Employee).where(Employee.organization_id == user.organization_id)
+    if search:
+        term = f"%{search}%"
+        statement = statement.where(
+            Employee.full_name.ilike(term) | Employee.employee_number.ilike(term)
+        )
+    return list(session.scalars(statement.order_by(Employee.full_name).limit(500)).all())
+
+
+@app.patch("/api/v1/employees/{employee_id}", response_model=EmployeeRead, tags=["employees"])
+def update_employee(
+    employee_id: int,
+    payload: EmployeeUpdate,
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    employee = session.scalar(select(Employee).where(
+        Employee.id == employee_id,
+        Employee.organization_id == user.organization_id,
+    ))
+    if employee is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for field in ("employee_number", "full_name", "is_active"):
+        if field in changes and changes[field] is None:
+            raise HTTPException(status_code=422, detail=f"{field} cannot be null")
+    for field in ("employee_number", "full_name"):
+        if field in changes:
+            changes[field] = changes[field].strip()
+            if not changes[field]:
+                raise HTTPException(status_code=422, detail=f"{field} cannot be blank")
+    if "email" in changes and changes["email"] is not None:
+        changes["email"] = str(changes["email"]).lower()
+    if changes.get("department_id") is not None and session.scalar(select(Department).where(
+        Department.id == changes["department_id"],
+        Department.organization_id == user.organization_id,
+    )) is None:
+        raise HTTPException(status_code=422, detail="Department must belong to this organization")
+    for field, value in changes.items():
+        setattr(employee, field, value)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Employee number or email already exists")
+    record_audit(session, user, "employee.updated", "employee", employee.id, {"fields": sorted(changes)})
+    session.commit()
+    session.refresh(employee)
+    return employee
+
+
+@app.delete("/api/v1/employees/{employee_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["employees"])
+def delete_employee(
+    employee_id: int,
+    session: SessionDep,
+    admin: Annotated[User, Depends(require_roles(UserRole.admin))],
+):
+    employee = session.scalar(select(Employee).where(
+        Employee.id == employee_id,
+        Employee.organization_id == admin.organization_id,
+    ))
+    if employee is None:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    record_audit(session, admin, "employee.deleted", "employee", employee.id)
+    session.delete(employee)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
