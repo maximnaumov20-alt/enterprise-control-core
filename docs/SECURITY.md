@@ -7,7 +7,9 @@ ECC is an early-development project. Authentication, role checks, organization-s
 ## Implemented controls
 
 - Passwords are hashed with Argon2 through pwdlib; plaintext passwords are never stored.
-- API access uses short-lived signed bearer tokens. The signing key is supplied through `ECC_SECRET_KEY`; the API refuses authentication when it is missing.
+- API access uses short-lived signed bearer tokens. The signing key is supplied through `ECC_SECRET_KEY`; the API refuses authentication when it is missing. Keys shorter than 32 bytes are rejected.
+- The API container runs as a non-root user and has a health check.
+- The production frontend is served by Nginx with a same-origin API reverse proxy and baseline content-type, frame, referrer and content-security-policy headers.
 - Roles are `admin`, `editor` and `viewer`. The API enforces permissions server-side.
 - Asset reads and writes are scoped to the authenticated user's organization. Organization IDs are never accepted from asset request bodies.
 - Asset inventory identifiers are unique within an organization rather than globally.
@@ -22,7 +24,7 @@ ECC is an early-development project. Authentication, role checks, organization-s
 - Audit events are application-level records, not tamper-proof or cryptographically chained. Database administrators can alter them.
 - Organization provisioning is currently performed by the bootstrap command. There is no self-service tenant signup.
 - There is no independent penetration test, formal threat model, production backup/restore certification or compliance assessment.
-- Deployment still requires HTTPS, secure secret storage, restrictive network rules, monitoring, dependency scanning and operational procedures.
+- Deployment still requires HTTPS at the public edge, secure secret storage, restrictive network rules, monitoring, dependency scanning and operational procedures.
 
 ## Reporting a vulnerability
 
