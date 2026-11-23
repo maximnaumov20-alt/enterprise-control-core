@@ -34,8 +34,18 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
+
+# macOS/Linux: generate a signing key and set the initial admin credentials.
+export ECC_SECRET_KEY="$(openssl rand -hex 32)"
+export ECC_ADMIN_EMAIL="admin@example.com"
+export ECC_ADMIN_PASSWORD="replace-with-a-unique-password-of-at-least-12-characters"
+export ECC_ORGANIZATION_NAME="Example Organization"
+python -m app.create_admin
+
 uvicorn app.main:app --reload
 ```
+
+On Windows PowerShell, set the same variables with `$env:NAME="value"` before running `python -m app.create_admin` and Uvicorn. Keep the signing key and administrator password private. The administrator bootstrap command is safe to rerun for an existing email; it does not reset the password.
 
 The API will be available at http://127.0.0.1:8000 and interactive documentation at http://127.0.0.1:8000/docs.
 
