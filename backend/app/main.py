@@ -1351,15 +1351,20 @@ def update_employee(
         Department.organization_id == user.organization_id,
     )) is None:
         raise HTTPException(status_code=422, detail="Department must belong to this organization")
-    for field, value in changes.items():
-        setattr(employee, field, value)
-    try:
-        session.flush()
-    except IntegrityError:
-        session.rollback()
-        raise HTTPException(status_code=409, detail="Employee number or email already exists")
-    record_audit(session, user, "employee.updated", "employee", employee.id, {"fields": sorted(changes)})
-    session.commit()
+    changes = {
+        field: value for field, value in changes.items()
+        if getattr(employee, field) != value
+    }
+    if changes:
+        for field, value in changes.items():
+            setattr(employee, field, value)
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="Employee number or email already exists")
+        record_audit(session, user, "employee.updated", "employee", employee.id, {"fields": sorted(changes)})
+        session.commit()
     session.refresh(employee)
     return employee
 
