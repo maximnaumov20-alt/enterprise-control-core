@@ -378,3 +378,72 @@ def test_maintenance_assignment_cannot_cross_organizations(client: TestClient) -
         json={"assigned_to_user_id": other_id},
     )
     assert response.status_code == 422
+
+
+def test_department_and_employee_directory_crud(client: TestClient) -> None:
+    department = client.post(
+        "/api/v1/departments",
+        json={"name": "Operations", "code": "ops"},
+    )
+    assert department.status_code == 201
+    department_id = department.json()["id"]
+    assert department.json()["code"] == "OPS"
+
+    employee = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "EMP-001",
+            "full_name": "Alex Employee",
+            "department_id": department_id,
+            "email": "alex.employee@example.com",
+            "job_title": "Systems Engineer",
+        },
+    )
+    assert employee.status_code == 201
+    employee_id = employee.json()["id"]
+
+    use_role(client, "editor")
+    assert len(client.get("/api/v1/departments").json()) == 1
+    assert len(client.get("/api/v1/employees?search=Alex").json()) == 1
+    assert client.post(
+        "/api/v1/departments",
+        json={"name": "Finance", "code": "FIN"},
+    ).status_code == 403
+
+    updated = client.patch(
+        f"/api/v1/employees/{employee_id}",
+        json={"job_title": "Senior Systems Engineer"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["job_title"] == "Senior Systems Engineer"
+
+    use_role(client, "viewer")
+    assert client.get("/api/v1/employees").status_code == 403
+    assert client.get("/api/v1/departments").status_code == 403
+
+
+def test_department_and_employee_tenant_isolation(client: TestClient) -> None:
+    department = client.post(
+        "/api/v1/departments",
+        json={"name": "Engineering", "code": "ENG"},
+    ).json()
+
+    use_role(client, "other_admin")
+    assert client.get("/api/v1/departments").json() == []
+    assert client.get("/api/v1/employees").json() == []
+    other_department = client.post(
+        "/api/v1/departments",
+        json={"name": "Engineering", "code": "ENG"},
+    )
+    assert other_department.status_code == 201
+
+    use_role(client, "admin")
+    cross_org_employee = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "EMP-X",
+            "full_name": "Cross Organization",
+            "department_id": department["id"] + 1,
+        },
+    )
+    assert cross_org_employee.status_code == 422
