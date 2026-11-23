@@ -23,13 +23,13 @@
 - [x] Per-user access-token invalidation after password or account-active-state changes
 
 ## Phase 2 - operational readiness
-- [ ] Backup and restore procedures
+- [ ] Backup and restore procedures (local PostgreSQL scripts added; recovery validation and off-host protection pending)
 - [ ] Structured logs and monitoring
 - [x] Baseline frontend security headers
 - [x] Login rate limiting with shared Redis counters
 - [ ] Additional API security headers and deployment hardening
 - [x] Python and npm dependency vulnerability scanning in GitHub Actions (`pip-audit`, `npm audit`)
-- [ ] Container image vulnerability scanning for unfixed critical vulnerabilities with Trivy (configured; clean scan pending)
+- [x] Container image vulnerability scanning for unfixed critical vulnerabilities with Trivy
 - [ ] Automated integration tests against PostgreSQL
 - [ ] Installation and upgrade documentation
 - [ ] Independent security review
