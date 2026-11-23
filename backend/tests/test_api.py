@@ -704,3 +704,161 @@ def test_disabling_and_reenabling_user_revokes_old_access_token(client: TestClie
 
     client.headers.update({"Authorization": f"Bearer {editor_token}"})
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient) -> None:
+    # Create related records in Company A.
+    department_a = client.post(
+        "/api/v1/departments", json={"name": "A Operations", "code": "A-OPS"}
+    ).json()
+    employee_a = client.post(
+        "/api/v1/employees",
+        json={"employee_number": "A-EMP-01", "full_name": "Employee A",
+              "department_id": department_a["id"]},
+    ).json()
+    license_a = client.post(
+        "/api/v1/software-licenses",
+        json={"name": "A License", "license_type": "perpetual",
+              "license_reference": "A-LIC-01", "seats_total": 5, "seats_used": 1},
+    ).json()
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "A Server", "asset_tag": "A-SRV-01", "category": "Server"},
+    ).json()
+    maintenance_a = client.post(
+        "/api/v1/maintenance-requests",
+        json={"asset_id": asset_a["id"], "title": "A maintenance",
+              "description": "Company A maintenance request"},
+    ).json()
+
+    # Create equivalent records in Company B.
+    use_role(client, "other_admin")
+    user_b_id = client.get("/api/v1/auth/me").json()["id"]
+    department_b = client.post(
+        "/api/v1/departments", json={"name": "B Operations", "code": "B-OPS"}
+    ).json()
+    employee_b = client.post(
+        "/api/v1/employees",
+        json={"employee_number": "B-EMP-01", "full_name": "Employee B",
+              "department_id": department_b["id"]},
+    ).json()
+    license_b = client.post(
+        "/api/v1/software-licenses",
+        json={"name": "B License", "license_type": "perpetual",
+              "license_reference": "B-LIC-01", "seats_total": 7, "seats_used": 2},
+    ).json()
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "B Server", "asset_tag": "B-SRV-01", "category": "Server"},
+    ).json()
+    maintenance_b = client.post(
+        "/api/v1/maintenance-requests",
+        json={"asset_id": asset_b["id"], "title": "B maintenance",
+              "description": "Company B maintenance request"},
+    ).json()
+
+    # Company A must not read, modify, or delete Company B records by guessing IDs.
+    use_role(client, "admin")
+    assert client.patch(
+        f"/api/v1/departments/{department_b['id']}", json={"name": "Hijacked"}
+    ).status_code == 404
+    assert client.delete(f"/api/v1/departments/{department_b['id']}").status_code == 404
+    assert client.patch(
+        f"/api/v1/employees/{employee_b['id']}", json={"full_name": "Hijacked"}
+    ).status_code == 404
+    assert client.delete(f"/api/v1/employees/{employee_b['id']}").status_code == 404
+    assert client.get(f"/api/v1/software-licenses/{license_b['id']}").status_code == 404
+    assert client.patch(
+        f"/api/v1/software-licenses/{license_b['id']}", json={"name": "Hijacked"}
+    ).status_code == 404
+    assert client.delete(f"/api/v1/software-licenses/{license_b['id']}").status_code == 404
+    assert client.get(
+        f"/api/v1/maintenance-requests/{maintenance_b['id']}"
+    ).status_code == 404
+    assert client.patch(
+        f"/api/v1/maintenance-requests/{maintenance_b['id']}",
+        json={"title": "Hijacked"},
+    ).status_code == 404
+
+    # Verify Company B data was not changed or removed.
+    use_role(client, "other_admin")
+    assert client.get(f"/api/v1/departments").json()[0]["name"] == "B Operations"
+    assert client.get(f"/api/v1/employees").json()[0]["full_name"] == "Employee B"
+    assert client.get(f"/api/v1/software-licenses/{license_b['id']}").json()["name"] == "B License"
+    assert client.get(
+        f"/api/v1/maintenance-requests/{maintenance_b['id']}"
+    ).json()["title"] == "B maintenance"
+
+    # Audit results must contain only events attributed to the current organization.
+    use_role(client, "admin")
+    events_a = client.get("/api/v1/audit-events").json()
+    assert events_a
+    assert all(event["actor_user_id"] != user_b_id for event in events_a)
+    # Only assert entity types that currently emit creation audit events.
+    assert any(event["entity_id"] == str(asset_a["id"]) for event in events_a)
+    assert any(event["entity_id"] == str(maintenance_a["id"]) for event in events_a)
+
+
+
+def test_asset_csv_export_never_includes_other_tenant_assets(client: TestClient) -> None:
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "Company A export", "asset_tag": "EXPORT-A-001", "category": "Laptop"},
+    )
+    assert asset_a.status_code == 201
+
+    use_role(client, "other_admin")
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "Company B export", "asset_tag": "EXPORT-B-001", "category": "Laptop"},
+    )
+    assert asset_b.status_code == 201
+
+    export_b = client.get("/api/v1/assets/export")
+    assert export_b.status_code == 200
+    assert "EXPORT-B-001" in export_b.text
+    assert "EXPORT-A-001" not in export_b.text
+
+    use_role(client, "admin")
+    export_a = client.get("/api/v1/assets/export")
+    assert export_a.status_code == 200
+    assert "EXPORT-A-001" in export_a.text
+    assert "EXPORT-B-001" not in export_a.text
+
+
+
+def test_asset_csv_import_export_cannot_cross_tenant_boundaries(client: TestClient) -> None:
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "A Exported asset", "asset_tag": "CSV-TENANT-A", "category": "Laptop"},
+    )
+    assert asset_a.status_code == 201
+
+    use_role(client, "other_admin")
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "B Private asset", "asset_tag": "CSV-TENANT-B", "category": "Server"},
+    )
+    assert asset_b.status_code == 201
+
+    # A's export must not disclose Company B's inventory.
+    use_role(client, "admin")
+    exported = client.get("/api/v1/assets/export")
+    assert exported.status_code == 200
+    assert "CSV-TENANT-A" in exported.text
+    assert "CSV-TENANT-B" not in exported.text
+
+    # Import cannot accept a client-supplied organization identifier.
+    malicious_csv = (
+        "name,asset_tag,category,organization_id\\n"
+        "Injected asset,CSV-INJECTED,Laptop,2\\n"
+    )
+    rejected = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", malicious_csv.encode("utf-8"), "text/csv")},
+    )
+    assert rejected.status_code == 422
+    assert all(item["asset_tag"] != "CSV-INJECTED" for item in client.get("/api/v1/assets").json())
+
+    use_role(client, "other_admin")
+    assert client.get("/api/v1/assets").json()[0]["asset_tag"] == "CSV-TENANT-B"
