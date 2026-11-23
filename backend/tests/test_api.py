@@ -200,6 +200,37 @@ def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
     assert client.get(f"/api/v1/assets/{asset_id}").status_code == 404
 
 
+def test_asset_delete_referenced_by_maintenance_returns_conflict_without_audit(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={"name": "Managed server", "asset_tag": "DEL-REF-001", "category": "Server"},
+    )
+    assert created.status_code == 201
+    asset_id = created.json()["id"]
+
+    maintenance = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset_id,
+            "title": "Keep server online",
+            "description": "The asset is still referenced by an open maintenance request",
+        },
+    )
+    assert maintenance.status_code == 201
+
+    deleted = client.delete(f"/api/v1/assets/{asset_id}")
+    assert deleted.status_code == 409
+    assert deleted.json()["detail"] == (
+        "Asset is referenced by maintenance requests and cannot be deleted"
+    )
+    assert client.get(f"/api/v1/assets/{asset_id}").status_code == 200
+
+    actions = [event["action"] for event in client.get("/api/v1/audit-events").json()]
+    assert actions.count("asset.deleted") == 0
+    assert actions.count("asset.created") == 1
+    assert actions.count("maintenance_request.created") == 1
+
+
 def test_asset_history_is_tenant_scoped_and_readable_by_viewer(client: TestClient) -> None:
     created = client.post(
         "/api/v1/assets",
