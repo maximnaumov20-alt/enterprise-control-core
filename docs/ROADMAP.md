@@ -11,7 +11,7 @@
 ## Phase 1 - usable Community Edition
 - [x] Authentication and secure password handling
 - [x] Organization and user foundation
-- [ ] Departments and organization administration UI
+- [x] Departments and employee directory foundation
 - [x] Tenant isolation and role-based access control
 - [ ] Asset import/export
 - [x] Tenant-scoped software licence register
