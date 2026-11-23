@@ -29,6 +29,8 @@ engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=Tr
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 SECRET_KEY = os.getenv("ECC_SECRET_KEY")
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "20"))
+if SECRET_KEY and "REPLACE_WITH" in SECRET_KEY:
+    raise RuntimeError("ECC_SECRET_KEY is still a placeholder; configure a unique random secret.")
 if SECRET_KEY and len(SECRET_KEY.encode("utf-8")) < 32:
     raise RuntimeError("ECC_SECRET_KEY must contain at least 32 bytes.")
 if not 5 <= ACCESS_TOKEN_MINUTES <= 60:
