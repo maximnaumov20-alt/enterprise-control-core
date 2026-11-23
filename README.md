@@ -20,7 +20,7 @@ The initial development scope is:
 - **API:** REST, documented by OpenAPI at `/docs`
 - **Deployment:** Docker Compose, non-root API container, Nginx static frontend and same-origin API proxy
 
-The current development build includes a tenant-scoped asset inventory API, bearer-token authentication, admin/editor/viewer roles, organization user administration, basic audit history and a React interface with sign-in, password change and role-aware controls. Employee directory, software/licence inventory and maintenance workflows will be added incrementally.
+The current development build includes a tenant-scoped asset and software licence inventory APIs, bearer-token authentication, admin/editor/viewer roles, organization user administration, basic audit history and a React interface with sign-in, password change and role-aware controls. Employee directory and maintenance workflows will be added incrementally.
 
 ## Run locally
 
