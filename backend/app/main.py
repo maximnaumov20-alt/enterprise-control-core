@@ -746,10 +746,17 @@ def change_password(
 ):
     if not password_hash.verify(payload.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
-    user.password_hash = password_hash.hash(payload.new_password)
-    user.token_version += 1
-    record_audit(session, user, "user.password_changed", "user", user.id)
-    session.commit()
+    try:
+        user.password_hash = password_hash.hash(payload.new_password)
+        user.token_version += 1
+        record_audit(session, user, "user.password_changed", "user", user.id)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Password change conflicts with current account records",
+        )
     return {"status": "password_updated"}
 
 
