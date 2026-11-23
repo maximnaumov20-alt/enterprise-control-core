@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Callable
@@ -11,9 +11,9 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy import (
-    DateTime, Enum as SAEnum, ForeignKey, Integer, JSON, String, UniqueConstraint,
+    CheckConstraint, Date, DateTime, Enum as SAEnum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint,
     create_engine, select,
 )
 from sqlalchemy.exc import IntegrityError
@@ -51,6 +51,19 @@ class UserRole(str, Enum):
     admin = "admin"
     editor = "editor"
     viewer = "viewer"
+
+
+class SoftwareLicenseType(str, Enum):
+    subscription = "subscription"
+    perpetual = "perpetual"
+    oem = "oem"
+    site = "site"
+
+
+class SoftwareLicenseStatus(str, Enum):
+    active = "active"
+    suspended = "suspended"
+    retired = "retired"
 
 
 class Organization(Base):
@@ -114,6 +127,46 @@ class Asset(Base):
     )
 
 
+class SoftwareLicense(Base):
+    __tablename__ = "software_licenses"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "license_reference", name="uq_software_org_reference"),
+        CheckConstraint("seats_total >= 1", name="ck_software_seats_total_positive"),
+        CheckConstraint("seats_used >= 0 AND seats_used <= seats_total", name="ck_software_seats_used_valid"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    publisher: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    license_type: Mapped[SoftwareLicenseType] = mapped_column(
+        SAEnum(SoftwareLicenseType, native_enum=False, length=16), nullable=False
+    )
+    license_reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    seats_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    seats_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    purchased_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[SoftwareLicenseStatus] = mapped_column(
+        SAEnum(SoftwareLicenseStatus, native_enum=False, length=16),
+        default=SoftwareLicenseStatus.active,
+        nullable=False,
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
@@ -166,6 +219,59 @@ class AssetRead(BaseModel):
     serial_number: str | None
     assigned_to: str | None
     status: AssetStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class SoftwareLicenseCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    publisher: str | None = Field(default=None, max_length=120)
+    version: str | None = Field(default=None, max_length=80)
+    license_type: SoftwareLicenseType
+    license_reference: str | None = Field(default=None, max_length=120)
+    seats_total: int = Field(ge=1, le=1000000)
+    seats_used: int = Field(default=0, ge=0, le=1000000)
+    purchased_at: date | None = None
+    expires_at: date | None = None
+    status: SoftwareLicenseStatus = SoftwareLicenseStatus.active
+    notes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def validate_seat_counts(self):
+        if self.seats_used > self.seats_total:
+            raise ValueError("seats_used cannot exceed seats_total")
+        return self
+
+
+class SoftwareLicenseUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    publisher: str | None = Field(default=None, max_length=120)
+    version: str | None = Field(default=None, max_length=80)
+    license_type: SoftwareLicenseType | None = None
+    license_reference: str | None = Field(default=None, max_length=120)
+    seats_total: int | None = Field(default=None, ge=1, le=1000000)
+    seats_used: int | None = Field(default=None, ge=0, le=1000000)
+    purchased_at: date | None = None
+    expires_at: date | None = None
+    status: SoftwareLicenseStatus | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class SoftwareLicenseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    publisher: str | None
+    version: str | None
+    license_type: SoftwareLicenseType
+    license_reference: str | None
+    seats_total: int
+    seats_used: int
+    purchased_at: date | None
+    expires_at: date | None
+    status: SoftwareLicenseStatus
+    notes: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -526,6 +632,135 @@ def delete_asset(
         raise HTTPException(status_code=404, detail="Asset not found")
     record_audit(session, user, "asset.deleted", "asset", asset.id, {"asset_tag": asset.asset_tag})
     session.delete(asset)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/api/v1/software-licenses",
+    response_model=SoftwareLicenseRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["software"],
+)
+def create_software_license(
+    payload: SoftwareLicenseCreate,
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    license_record = SoftwareLicense(organization_id=user.organization_id, **payload.model_dump())
+    session.add(license_record)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="License reference already exists")
+    record_audit(
+        session, user, "software_license.created", "software_license", license_record.id,
+        {"name": license_record.name, "license_type": license_record.license_type.value},
+    )
+    session.commit()
+    session.refresh(license_record)
+    return license_record
+
+
+@app.get("/api/v1/software-licenses", response_model=list[SoftwareLicenseRead], tags=["software"])
+def list_software_licenses(
+    session: SessionDep,
+    user: CurrentUser,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    search: Annotated[str | None, Query(max_length=120)] = None,
+):
+    statement = select(SoftwareLicense).where(
+        SoftwareLicense.organization_id == user.organization_id
+    )
+    if search:
+        statement = statement.where(SoftwareLicense.name.ilike(f"%{search}%"))
+    statement = statement.order_by(SoftwareLicense.id.desc()).offset(offset).limit(limit)
+    return list(session.scalars(statement).all())
+
+
+@app.get(
+    "/api/v1/software-licenses/{license_id}",
+    response_model=SoftwareLicenseRead,
+    tags=["software"],
+)
+def get_software_license(license_id: int, session: SessionDep, user: CurrentUser):
+    license_record = session.scalar(select(SoftwareLicense).where(
+        SoftwareLicense.id == license_id,
+        SoftwareLicense.organization_id == user.organization_id,
+    ))
+    if license_record is None:
+        raise HTTPException(status_code=404, detail="Software license not found")
+    return license_record
+
+
+@app.patch(
+    "/api/v1/software-licenses/{license_id}",
+    response_model=SoftwareLicenseRead,
+    tags=["software"],
+)
+def update_software_license(
+    license_id: int,
+    payload: SoftwareLicenseUpdate,
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    license_record = session.scalar(select(SoftwareLicense).where(
+        SoftwareLicense.id == license_id,
+        SoftwareLicense.organization_id == user.organization_id,
+    ))
+    if license_record is None:
+        raise HTTPException(status_code=404, detail="Software license not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for required_field in ("name", "license_type", "seats_total", "seats_used", "status"):
+        if required_field in changes and changes[required_field] is None:
+            raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
+    total = changes.get("seats_total", license_record.seats_total)
+    used = changes.get("seats_used", license_record.seats_used)
+    if used > total:
+        raise HTTPException(status_code=422, detail="seats_used cannot exceed seats_total")
+    if "name" in changes:
+        changes["name"] = changes["name"].strip()
+        if not changes["name"]:
+            raise HTTPException(status_code=422, detail="name cannot be blank")
+    for field, value in changes.items():
+        setattr(license_record, field, value)
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="License reference already exists")
+    record_audit(
+        session, user, "software_license.updated", "software_license", license_record.id,
+        {"fields": sorted(changes)},
+    )
+    session.commit()
+    session.refresh(license_record)
+    return license_record
+
+
+@app.delete(
+    "/api/v1/software-licenses/{license_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["software"],
+)
+def delete_software_license(
+    license_id: int,
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    license_record = session.scalar(select(SoftwareLicense).where(
+        SoftwareLicense.id == license_id,
+        SoftwareLicense.organization_id == user.organization_id,
+    ))
+    if license_record is None:
+        raise HTTPException(status_code=404, detail="Software license not found")
+    record_audit(
+        session, user, "software_license.deleted", "software_license", license_record.id,
+        {"name": license_record.name},
+    )
+    session.delete(license_record)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
