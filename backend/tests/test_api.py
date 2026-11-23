@@ -1231,3 +1231,77 @@ def test_audit_event_list_cannot_be_scoped_to_another_organization_by_query(clie
     event_ids = {event["entity_id"] for event in response.json()}
     assert asset_b_id in event_ids
     assert asset_a_id not in event_ids
+
+
+
+def test_audit_creation_details_exclude_sensitive_license_and_maintenance_fields(client: TestClient) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "Audit Privacy Server",
+            "asset_tag": "AUDIT-PRIVACY-SERVER",
+            "category": "Server",
+        },
+    )
+    assert asset.status_code == 201
+
+    license_payload = {
+        "name": "Confidential Enterprise Suite",
+        "publisher": "Private Publisher",
+        "version": "2026.11",
+        "license_type": "subscription",
+        "license_reference": "PRIVATE-CONTRACT-REFERENCE-DO-NOT-LOG",
+        "seats_total": 50,
+        "seats_used": 12,
+    }
+    license_response = client.post("/api/v1/software-licenses", json=license_payload)
+    assert license_response.status_code == 201
+    license_id = str(license_response.json()["id"])
+
+    maintenance_payload = {
+        "asset_id": asset.json()["id"],
+        "title": "Confidential maintenance request",
+        "description": "PRIVATE-MAINTENANCE-DESCRIPTION-DO-NOT-LOG",
+        "priority": "high",
+    }
+    maintenance_response = client.post(
+        "/api/v1/maintenance-requests",
+        json=maintenance_payload,
+    )
+    assert maintenance_response.status_code == 201
+    maintenance_id = str(maintenance_response.json()["id"])
+
+    audit = client.get("/api/v1/audit-events")
+    assert audit.status_code == 200
+    events = audit.json()
+
+    license_events = [
+        event for event in events
+        if event["action"] == "software_license.created"
+        and event["entity_id"] == license_id
+    ]
+    assert len(license_events) == 1
+    assert license_events[0]["details"] == {
+        "name": "Confidential Enterprise Suite",
+        "license_type": "subscription",
+    }
+
+    maintenance_events = [
+        event for event in events
+        if event["action"] == "maintenance.created"
+        and event["entity_id"] == maintenance_id
+    ]
+    assert len(maintenance_events) == 1
+    assert maintenance_events[0]["details"] == {
+        "asset_id": asset.json()["id"],
+        "priority": "high",
+    }
+
+    serialized_audit = str(events)
+    for sensitive_value in (
+        "PRIVATE-CONTRACT-REFERENCE-DO-NOT-LOG",
+        "Private Publisher",
+        "PRIVATE-MAINTENANCE-DESCRIPTION-DO-NOT-LOG",
+        "Confidential maintenance request",
+    ):
+        assert sensitive_value not in serialized_audit
