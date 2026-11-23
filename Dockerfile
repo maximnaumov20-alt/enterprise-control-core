@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY backend/requirements.lock ./requirements.lock
+COPY backend/requirements-runtime.lock ./requirements.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY backend/app ./app
