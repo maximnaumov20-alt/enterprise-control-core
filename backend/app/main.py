@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import os
 import threading
 import time
@@ -9,8 +11,9 @@ from pathlib import Path
 from typing import Annotated, Callable
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from redis import Redis
@@ -854,6 +857,121 @@ def list_assets(
         statement = statement.where(Asset.name.ilike(f"%{search}%"))
     statement = statement.order_by(Asset.id.desc()).offset(offset).limit(limit)
     return list(session.scalars(statement).all())
+
+
+
+ASSET_CSV_COLUMNS = (
+    "name", "asset_tag", "category", "manufacturer", "model",
+    "serial_number", "assigned_to", "status",
+)
+MAX_ASSET_IMPORT_BYTES = 2 * 1024 * 1024
+MAX_ASSET_IMPORT_ROWS = 5000
+
+
+def _spreadsheet_safe(value: object) -> str:
+    text = "" if value is None else str(value)
+    if text.startswith(("=", "+", "-", "@", "\t", "\r", "\n")):
+        return "'" + text
+    return text
+
+
+@app.get("/api/v1/assets/export", tags=["assets"])
+def export_assets(
+    session: SessionDep,
+    user: CurrentUser,
+):
+    assets = session.scalars(
+        select(Asset)
+        .where(Asset.organization_id == user.organization_id)
+        .order_by(Asset.id)
+    ).all()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\r\n")
+    writer.writerow(ASSET_CSV_COLUMNS)
+    for asset in assets:
+        writer.writerow([
+            _spreadsheet_safe(getattr(asset, column))
+            for column in ASSET_CSV_COLUMNS
+        ])
+    content = "\ufeff" + output.getvalue()
+    return StreamingResponse(
+        iter([content]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="ecc-assets.csv"'},
+    )
+
+
+@app.post("/api/v1/assets/import", tags=["assets"])
+async def import_assets(
+    file: UploadFile = File(...),
+    session: SessionDep = None,
+    user: User = Depends(require_roles(UserRole.admin, UserRole.editor)),
+):
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Upload a .csv file")
+    raw = await file.read(MAX_ASSET_IMPORT_BYTES + 1)
+    if len(raw) > MAX_ASSET_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="CSV file exceeds the 2 MiB limit")
+    try:
+        decoded = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="CSV must use UTF-8 encoding")
+    try:
+        reader = csv.DictReader(io.StringIO(decoded, newline=""))
+        headers = reader.fieldnames or []
+        if len(headers) != len(set(headers)) or not set(("name", "asset_tag", "category")).issubset(headers):
+            raise HTTPException(
+                status_code=422,
+                detail="CSV must contain unique headers including name, asset_tag and category",
+            )
+        unknown = set(headers) - set(ASSET_CSV_COLUMNS)
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"Unsupported CSV columns: {', '.join(sorted(unknown))}")
+        rows = list(reader)
+    except csv.Error:
+        raise HTTPException(status_code=400, detail="Malformed CSV file")
+    if len(rows) > MAX_ASSET_IMPORT_ROWS:
+        raise HTTPException(status_code=413, detail="CSV exceeds the 5,000 row limit")
+
+    created = 0
+    skipped = 0
+    errors = []
+    for line_number, row in enumerate(rows, start=2):
+        if None in row:
+            errors.append({"row": line_number, "error": "Unexpected extra CSV fields"})
+            continue
+        values = {key: (value.strip() if value is not None else None) for key, value in row.items()}
+        try:
+            payload = AssetCreate.model_validate(values)
+        except Exception as exc:
+            skipped += 1
+            errors.append({"row": line_number, "error": str(exc)[:300]})
+            continue
+        duplicate = session.scalar(select(Asset.id).where(
+            Asset.organization_id == user.organization_id,
+            (Asset.asset_tag == payload.asset_tag) |
+            ((Asset.serial_number == payload.serial_number) if payload.serial_number else False),
+        ))
+        if duplicate is not None:
+            skipped += 1
+            errors.append({"row": line_number, "error": "Duplicate asset tag or serial number"})
+            continue
+        try:
+            with session.begin_nested():
+                asset = Asset(organization_id=user.organization_id, **payload.model_dump())
+                session.add(asset)
+                session.flush()
+            created += 1
+        except IntegrityError:
+            skipped += 1
+            errors.append({"row": line_number, "error": "Duplicate asset tag or serial number"})
+
+    record_audit(
+        session, user, "asset.imported", "asset_import", "batch",
+        {"created": created, "skipped": skipped, "error_count": len(errors)},
+    )
+    session.commit()
+    return {"created": created, "skipped": skipped, "errors": errors}
 
 
 @app.get("/api/v1/assets/{asset_id}", response_model=AssetRead, tags=["assets"])
