@@ -240,6 +240,8 @@ class SoftwareLicenseCreate(BaseModel):
     def validate_seat_counts(self):
         if self.seats_used > self.seats_total:
             raise ValueError("seats_used cannot exceed seats_total")
+        if self.purchased_at and self.expires_at and self.expires_at < self.purchased_at:
+            raise ValueError("expires_at cannot be earlier than purchased_at")
         return self
 
 
@@ -647,7 +649,13 @@ def create_software_license(
     session: SessionDep,
     user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
 ):
-    license_record = SoftwareLicense(organization_id=user.organization_id, **payload.model_dump())
+    values = payload.model_dump()
+    values["name"] = values["name"].strip()
+    if not values["name"]:
+        raise HTTPException(status_code=422, detail="name cannot be blank")
+    if values["license_reference"] is not None:
+        values["license_reference"] = values["license_reference"].strip() or None
+    license_record = SoftwareLicense(organization_id=user.organization_id, **values)
     session.add(license_record)
     try:
         session.flush()
@@ -724,6 +732,12 @@ def update_software_license(
         changes["name"] = changes["name"].strip()
         if not changes["name"]:
             raise HTTPException(status_code=422, detail="name cannot be blank")
+    if "license_reference" in changes and changes["license_reference"] is not None:
+        changes["license_reference"] = changes["license_reference"].strip() or None
+    purchased_at = changes.get("purchased_at", license_record.purchased_at)
+    expires_at = changes.get("expires_at", license_record.expires_at)
+    if purchased_at and expires_at and expires_at < purchased_at:
+        raise HTTPException(status_code=422, detail="expires_at cannot be earlier than purchased_at")
     for field, value in changes.items():
         setattr(license_record, field, value)
     try:
