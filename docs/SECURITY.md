@@ -28,7 +28,7 @@ ECC is an early-development project. Authentication, role checks, organization-s
 
 ## Reporting a vulnerability
 
-Until a private security contact is configured, do not publish exploit details in a public issue. Contact the repository owner through the private GitHub contact options.
+A private vulnerability reporting channel has not yet been configured. Do not publish exploit details in a public issue. Before inviting external users or contributors, the repository owner must enable GitHub private vulnerability reporting or publish a dedicated security contact.
 
 ## Minimum requirements before production
 
