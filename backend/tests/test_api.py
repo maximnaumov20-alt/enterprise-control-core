@@ -1164,3 +1164,44 @@ def test_duplicate_asset_creation_does_not_create_audit_event(client: TestClient
     assert len(matching) == 1
     assert matching[0]["id"] == original_id
     assert matching[0]["name"] == "Original Audit Asset"
+
+
+def test_audit_events_are_isolated_between_organizations(client: TestClient) -> None:
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "Tenant A Audit Asset", "asset_tag": "AUDIT-TENANT-A-001", "category": "Server"},
+    )
+    assert asset_a.status_code == 201
+    asset_a_id = str(asset_a.json()["id"])
+
+    events_a_before = client.get("/api/v1/audit-events")
+    assert events_a_before.status_code == 200
+    assert any(
+        event["action"] == "asset.created" and event["entity_id"] == asset_a_id
+        for event in events_a_before.json()
+    )
+
+    use_role(client, "other_admin")
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "Tenant B Audit Asset", "asset_tag": "AUDIT-TENANT-B-001", "category": "Laptop"},
+    )
+    assert asset_b.status_code == 201
+    asset_b_id = str(asset_b.json()["id"])
+
+    events_b = client.get("/api/v1/audit-events")
+    assert events_b.status_code == 200
+    assert any(
+        event["action"] == "asset.created" and event["entity_id"] == asset_b_id
+        for event in events_b.json()
+    )
+    assert all(event["entity_id"] != asset_a_id for event in events_b.json())
+
+    use_role(client, "admin")
+    events_a_after = client.get("/api/v1/audit-events")
+    assert events_a_after.status_code == 200
+    assert any(
+        event["action"] == "asset.created" and event["entity_id"] == asset_a_id
+        for event in events_a_after.json()
+    )
+    assert all(event["entity_id"] != asset_b_id for event in events_a_after.json())
