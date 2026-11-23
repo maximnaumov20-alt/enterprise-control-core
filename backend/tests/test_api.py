@@ -1092,3 +1092,37 @@ def test_asset_creation_audit_records_actor_and_consistent_entity_details(client
         "category": "Server",
         "status": "active",
     }
+
+
+def test_failed_department_delete_does_not_create_audit_event(client: TestClient) -> None:
+    department = client.post(
+        "/api/v1/departments",
+        json={"name": "Protected Department", "code": "PROTECTED"},
+    )
+    assert department.status_code == 201
+    department_id = department.json()["id"]
+
+    employee = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "PROTECTED-EMP-001",
+            "full_name": "Assigned Employee",
+            "department_id": department_id,
+        },
+    )
+    assert employee.status_code == 201
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    rejected = client.delete(f"/api/v1/departments/{department_id}")
+    assert rejected.status_code == 409
+
+    after = client.get("/api/v1/audit-events")
+    assert after.status_code == 200
+    assert [event["id"] for event in after.json()] == before_ids
+
+    still_present = client.get("/api/v1/departments")
+    assert still_present.status_code == 200
+    assert any(item["id"] == department_id for item in still_present.json())

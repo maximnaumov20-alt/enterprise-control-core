@@ -1248,6 +1248,14 @@ def delete_department(
     ))
     if department is None:
         raise HTTPException(status_code=404, detail="Department not found")
+    assigned_employee_id = session.scalar(
+        select(Employee.id).where(
+            Employee.organization_id == admin.organization_id,
+            Employee.department_id == department.id,
+        ).limit(1)
+    )
+    if assigned_employee_id is not None:
+        raise HTTPException(status_code=409, detail="Department is assigned to employees")
     record_audit(session, admin, "department.deleted", "department", department.id)
     session.delete(department)
     try:
