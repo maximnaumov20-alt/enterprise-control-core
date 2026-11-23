@@ -28,6 +28,26 @@ export interface Asset {
 
 export type AssetInput = Omit<Asset, "id" | "created_at" | "updated_at">;
 
+export interface ManagedUser {
+  id: number;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  is_active: boolean;
+  organization_id: number;
+  created_at: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  actor_user_id: number | null;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface TokenResponse {
   access_token: string;
   token_type: string;
@@ -73,6 +93,12 @@ export const api = {
       body: new URLSearchParams({ username: email, password })
     }),
   me: () => request<CurrentUser>("/api/v1/auth/me"),
+  users: () => request<ManagedUser[]>("/api/v1/users"),
+  createUser: (user: { email: string; full_name: string; password: string; role: UserRole }) =>
+    request<ManagedUser>("/api/v1/users", { method: "POST", body: JSON.stringify(user) }),
+  updateUser: (id: number, changes: { full_name?: string; role?: UserRole; is_active?: boolean }) =>
+    request<ManagedUser>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  auditEvents: (limit = 100) => request<AuditEvent[]>(`/api/v1/audit-events?limit=${limit}`),
   assets: (search = "") => request<Asset[]>(`/api/v1/assets?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`),
   createAsset: (asset: AssetInput) => request<Asset>("/api/v1/assets", { method: "POST", body: JSON.stringify(asset) }),
   updateAsset: (id: number, asset: Partial<AssetInput>) => request<Asset>(`/api/v1/assets/${id}`, { method: "PATCH", body: JSON.stringify(asset) }),
