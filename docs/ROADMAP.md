@@ -13,7 +13,7 @@
 - [x] Organization and user foundation
 - [x] Departments and employee directory foundation
 - [x] Tenant isolation and role-based access control
-- [ ] Asset import/export
+- [x] Tenant-scoped asset CSV import/export with validation and spreadsheet-formula protection
 - [x] Tenant-scoped software licence register
 - [x] Maintenance request workflow
 - [x] Basic audit events
@@ -28,7 +28,8 @@
 - [x] Baseline frontend security headers
 - [x] Login rate limiting with shared Redis counters
 - [ ] Additional API security headers and deployment hardening
-- [ ] Dependency and container scanning
+- [x] Python and npm dependency vulnerability scanning in GitHub Actions (`pip-audit`, `npm audit`)
+- [ ] Container image vulnerability scanning
 - [ ] Automated integration tests against PostgreSQL
 - [ ] Installation and upgrade documentation
 - [ ] Independent security review
