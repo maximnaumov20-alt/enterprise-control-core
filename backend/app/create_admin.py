@@ -18,7 +18,8 @@ def main() -> None:
 
     with SessionLocal() as session:
         if session.scalar(select(User).where(User.email == email)):
-            raise SystemExit("A user with this email already exists.")
+            print("Administrator already exists; no changes made.")
+            return
         organization = session.scalar(select(Organization).where(Organization.name == organization_name))
         if organization is None:
             organization = Organization(name=organization_name)
