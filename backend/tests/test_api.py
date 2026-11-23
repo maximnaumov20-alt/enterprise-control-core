@@ -183,6 +183,14 @@ def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
     assert updated.status_code == 200
     assert updated.json()["status"] == "in_repair"
 
+    history = client.get(f"/api/v1/assets/{asset_id}/history")
+    assert history.status_code == 200
+    assert history.json()[0]["action"] == "asset.updated"
+    assert history.json()[0]["details"]["changes"]["status"] == {
+        "old": "active",
+        "new": "in_repair",
+    }
+
     events = client.get("/api/v1/audit-events")
     assert events.status_code == 200
     assert [event["action"] for event in events.json()] == ["asset.updated", "asset.created"]
@@ -190,6 +198,26 @@ def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
     deleted = client.delete(f"/api/v1/assets/{asset_id}")
     assert deleted.status_code == 204
     assert client.get(f"/api/v1/assets/{asset_id}").status_code == 404
+
+
+def test_asset_history_is_tenant_scoped_and_readable_by_viewer(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={"name": "History laptop", "asset_tag": "HIST-001", "category": "Laptop"},
+    )
+    asset_id = created.json()["id"]
+    assert client.patch(f"/api/v1/assets/{asset_id}", json={"name": "Renamed laptop"}).status_code == 200
+
+    use_role(client, "viewer")
+    history = client.get(f"/api/v1/assets/{asset_id}/history")
+    assert history.status_code == 200
+    assert history.json()[0]["details"]["changes"]["name"] == {
+        "old": "History laptop",
+        "new": "Renamed laptop",
+    }
+
+    use_role(client, "other_admin")
+    assert client.get(f"/api/v1/assets/{asset_id}/history").status_code == 404
 
 
 def test_asset_csv_import_export_and_formula_safety(client: TestClient) -> None:
