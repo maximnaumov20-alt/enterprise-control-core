@@ -29,6 +29,10 @@ engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=Tr
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 SECRET_KEY = os.getenv("ECC_SECRET_KEY")
 ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "20"))
+if SECRET_KEY and len(SECRET_KEY.encode("utf-8")) < 32:
+    raise RuntimeError("ECC_SECRET_KEY must contain at least 32 bytes.")
+if not 5 <= ACCESS_TOKEN_MINUTES <= 60:
+    raise RuntimeError("ACCESS_TOKEN_MINUTES must be between 5 and 60.")
 password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
@@ -224,6 +228,8 @@ def create_access_token(user: User) -> str:
         "iat": now,
         "exp": now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
         "type": "access",
+        "iss": "ecc-api",
+        "aud": "ecc-client",
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
@@ -240,7 +246,13 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=["HS256"],
+            issuer="ecc-api",
+            audience="ecc-client",
+        )
         if payload.get("type") != "access":
             raise unauthorized
         user_id = int(payload["sub"])
