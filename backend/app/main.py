@@ -1685,14 +1685,17 @@ def update_software_license(
             setattr(license_record, field, value)
         try:
             session.flush()
+            record_audit(
+                session, user, "software_license.updated", "software_license", license_record.id,
+                {"fields": sorted(changes)},
+            )
+            session.commit()
         except IntegrityError:
             session.rollback()
-            raise HTTPException(status_code=409, detail="License reference already exists")
-        record_audit(
-            session, user, "software_license.updated", "software_license", license_record.id,
-            {"fields": sorted(changes)},
-        )
-        session.commit()
+            raise HTTPException(
+                status_code=409,
+                detail="Software license update conflicts with current organization records",
+            )
     session.refresh(license_record)
     return license_record
 
