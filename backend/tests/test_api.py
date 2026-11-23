@@ -508,3 +508,33 @@ def test_department_and_employee_tenant_isolation(client: TestClient) -> None:
         },
     )
     assert cross_org_employee.status_code == 422
+
+
+
+def test_password_change_revokes_existing_access_token(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": "test-password-admin-123",
+            "new_password": "replacement-password-456",
+        },
+    )
+    assert response.status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_disabling_and_reenabling_user_revokes_old_access_token(client: TestClient) -> None:
+    editor_token = client.app.state.test_tokens["editor"]
+    response = client.patch(
+        "/api/v1/users/2",
+        json={"is_active": False},
+    )
+    assert response.status_code == 200
+    response = client.patch(
+        "/api/v1/users/2",
+        json={"is_active": True},
+    )
+    assert response.status_code == 200
+
+    client.headers.update({"Authorization": f"Bearer {editor_token}"})
+    assert client.get("/api/v1/auth/me").status_code == 401
