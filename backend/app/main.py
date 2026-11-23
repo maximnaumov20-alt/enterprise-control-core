@@ -20,7 +20,7 @@ from redis import Redis
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy import (
     CheckConstraint, Date, DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, Text, UniqueConstraint,
-    create_engine, select,
+    create_engine, select, update as sql_update,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -250,6 +250,7 @@ class Asset(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
 
 class MaintenanceRequest(Base):
@@ -375,6 +376,7 @@ class AssetCreate(BaseModel):
 
 
 class AssetUpdate(BaseModel):
+    expected_version: int = Field(default=1, ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=160)
     category: str | None = Field(default=None, min_length=1, max_length=80)
     manufacturer: str | None = Field(default=None, max_length=120)
@@ -386,11 +388,17 @@ class AssetUpdate(BaseModel):
 
 class AssetBulkUpdate(BaseModel):
     asset_ids: list[int] = Field(min_length=1, max_length=100)
+    versions: dict[int, int] | None = None
     status: AssetStatus | None = None
     assigned_to: str | None = Field(default=None, max_length=160)
 
     @model_validator(mode="after")
     def validate_bulk_update(self):
+        if self.versions is not None and (
+            set(self.versions) != set(self.asset_ids)
+            or any(version < 1 for version in self.versions.values())
+        ):
+            raise ValueError("versions must include a positive version for every asset")
         if len(self.asset_ids) != len(set(self.asset_ids)):
             raise ValueError("asset_ids must not contain duplicates")
         if any(asset_id <= 0 for asset_id in self.asset_ids):
@@ -418,6 +426,7 @@ class AssetRead(BaseModel):
     status: AssetStatus
     created_at: datetime
     updated_at: datetime
+    version: int
 
 
 class DepartmentCreate(BaseModel):
@@ -923,18 +932,34 @@ def bulk_update_assets(
     if len(assets) != len(payload.asset_ids):
         raise HTTPException(status_code=404, detail="One or more assets were not found")
 
-    requested = payload.model_dump(exclude_unset=True, exclude={"asset_ids"})
+    requested = payload.model_dump(exclude_unset=True, exclude={"asset_ids", "versions"})
+    expected_versions = payload.versions or {asset_id: 1 for asset_id in payload.asset_ids}
     changed_count = 0
     try:
         for asset in assets:
-            changes: dict[str, dict[str, str | None]] = {}
+            expected = expected_versions[asset.id]
+            if asset.version != expected:
+                raise HTTPException(status_code=409, detail=f"Asset {asset.id} was changed by another user")
+            changes = {}
+            values = {}
             for field, value in requested.items():
                 old_value = getattr(asset, field)
                 old_value = old_value.value if isinstance(old_value, Enum) else old_value
                 new_value = value.value if isinstance(value, Enum) else value
                 if old_value != new_value:
                     changes[field] = {"old": old_value, "new": new_value}
-                    setattr(asset, field, value)
+                    values[field] = value
+            result = session.execute(
+                sql_update(Asset)
+                .where(
+                    Asset.id == asset.id,
+                    Asset.organization_id == user.organization_id,
+                    Asset.version == expected,
+                )
+                .values(**values, version=Asset.version + 1)
+            )
+            if result.rowcount != 1:
+                raise HTTPException(status_code=409, detail=f"Asset {asset.id} was changed by another user")
             if changes:
                 record_audit(
                     session, user, "asset.updated", "asset", asset.id,
@@ -942,16 +967,23 @@ def bulk_update_assets(
                 )
                 changed_count += 1
         session.commit()
+    except HTTPException:
+        session.rollback()
+        raise
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Bulk update conflicts with existing data")
 
-    for asset in assets:
-        session.refresh(asset)
+    refreshed = list(session.scalars(
+        select(Asset).where(
+            Asset.organization_id == user.organization_id,
+            Asset.id.in_(payload.asset_ids),
+        ).order_by(Asset.id)
+    ).all())
     return {
-        "selected": len(assets),
+        "selected": len(refreshed),
         "updated": changed_count,
-        "assets": [AssetRead.model_validate(asset).model_dump(mode="json") for asset in assets],
+        "assets": [AssetRead.model_validate(asset).model_dump(mode="json") for asset in refreshed],
     }
 
 
@@ -1116,32 +1148,47 @@ def update_asset(
     ))
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    changes = payload.model_dump(exclude_unset=True)
+    expected_version = payload.expected_version
+    changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
     for required_field in ("name", "category"):
         if required_field in changes and changes[required_field] is None:
             raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
-    before_after: dict[str, dict[str, str | None]] = {}
+    if asset.version != expected_version:
+        raise HTTPException(status_code=409, detail="Asset was changed by another user")
+    before_after = {}
     for field, value in changes.items():
         old_value = getattr(asset, field)
         old_value = old_value.value if isinstance(old_value, Enum) else old_value
         new_value = value.value if isinstance(value, Enum) else value
         if old_value != new_value:
             before_after[field] = {"old": old_value, "new": new_value}
-        setattr(asset, field, value)
-    if not before_after:
-        return asset
     try:
-        session.flush()
-        record_audit(
-            session, user, "asset.updated", "asset", asset.id,
-            {"changes": before_after},
+        result = session.execute(
+            sql_update(Asset)
+            .where(
+                Asset.id == asset_id,
+                Asset.organization_id == user.organization_id,
+                Asset.version == expected_version,
+            )
+            .values(**changes, version=Asset.version + 1)
         )
+        if result.rowcount != 1:
+            raise HTTPException(status_code=409, detail="Asset was changed by another user")
+        if before_after:
+            record_audit(
+                session, user, "asset.updated", "asset", asset.id,
+                {"changes": before_after},
+            )
         session.commit()
+    except HTTPException:
+        session.rollback()
+        raise
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Asset update conflicts with existing organization records")
-    session.refresh(asset)
-    return asset
+    return session.scalar(select(Asset).where(
+        Asset.id == asset_id, Asset.organization_id == user.organization_id
+    ))
 
 
 @app.get("/api/v1/assets/{asset_id}/history", tags=["assets"])
