@@ -862,3 +862,52 @@ def test_asset_csv_import_export_cannot_cross_tenant_boundaries(client: TestClie
 
     use_role(client, "other_admin")
     assert client.get("/api/v1/assets").json()[0]["asset_tag"] == "CSV-TENANT-B"
+
+
+
+def test_admin_cannot_disable_or_demote_own_account(client: TestClient) -> None:
+    current_id = client.get("/api/v1/auth/me").json()["id"]
+
+    disabled = client.patch(
+        f"/api/v1/users/{current_id}",
+        json={"is_active": False},
+    )
+    assert disabled.status_code == 422
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+    demoted = client.patch(
+        f"/api/v1/users/{current_id}",
+        json={"role": "editor"},
+    )
+    assert demoted.status_code == 422
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+
+def test_admin_user_management_cannot_cross_tenant_or_assign_tenant(client: TestClient) -> None:
+    use_role(client, "other_admin")
+    foreign_user_id = client.get("/api/v1/auth/me").json()["id"]
+
+    use_role(client, "admin")
+    assert client.patch(
+        f"/api/v1/users/{foreign_user_id}",
+        json={"full_name": "Cross-tenant takeover"},
+    ).status_code == 404
+
+    created = client.post(
+        "/api/v1/users",
+        json={
+            "email": "tenant-bound-user@example.com",
+            "full_name": "Tenant Bound User",
+            "password": "long-enough-password",
+            "role": "viewer",
+            "organization_id": 2,
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["organization_id"] == client.get("/api/v1/auth/me").json()["organization_id"]
+
+    use_role(client, "other_admin")
+    assert all(
+        user["email"] != "tenant-bound-user@example.com"
+        for user in client.get("/api/v1/users").json()
+    )
