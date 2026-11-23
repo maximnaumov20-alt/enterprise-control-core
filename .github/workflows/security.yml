@@ -50,3 +50,40 @@ jobs:
       - name: Audit frontend dependencies
         working-directory: frontend
         run: npm audit --audit-level=high
+
+  container-images:
+    name: Container image vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build --tag ecc-api:security .
+
+      - name: Build frontend image
+        run: docker build --tag ecc-frontend:security ./frontend
+
+      - name: Scan API image for unfixed critical vulnerabilities
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:/root/.cache/" \
+            aquasec/trivy:0.58.2 image \
+            --scanners vuln \
+            --ignore-unfixed \
+            --severity CRITICAL \
+            --exit-code 1 \
+            ecc-api:security
+
+      - name: Scan frontend image for unfixed critical vulnerabilities
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:/root/.cache/" \
+            aquasec/trivy:0.58.2 image \
+            --scanners vuln \
+            --ignore-unfixed \
+            --severity CRITICAL \
+            --exit-code 1 \
+            ecc-frontend:security
