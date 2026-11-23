@@ -16,7 +16,7 @@
 - [ ] Software and licence register
 - [ ] Maintenance requests
 - [x] Basic audit events
-- [x] Asset inventory web interface with sign-in and role-aware controls
+- [x] Asset inventory web interface with sign-in and role-aware controls\n- [x] Administrator UI for user accounts and audit history\n- [x] Authenticated password change
 
 ## Phase 2 - operational readiness
 - [ ] Backup and restore procedures
