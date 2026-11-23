@@ -1333,11 +1333,11 @@ def create_employee(
     session.add(employee)
     try:
         session.flush()
+        record_audit(session, user, "employee.created", "employee", employee.id)
+        session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Employee number or email already exists")
-    record_audit(session, user, "employee.created", "employee", employee.id)
-    session.commit()
+        raise HTTPException(status_code=409, detail="Employee creation conflicts with current organization records")
     session.refresh(employee)
     return employee
 
