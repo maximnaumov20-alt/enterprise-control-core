@@ -166,6 +166,11 @@ class AssetRead(BaseModel):
     updated_at: datetime
 
 
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=160)
@@ -317,6 +322,20 @@ def login(
         access_token=create_access_token(user),
         expires_in=ACCESS_TOKEN_MINUTES * 60,
     )
+
+
+@app.post("/api/v1/auth/change-password", tags=["authentication"])
+def change_password(
+    payload: PasswordChange,
+    session: SessionDep,
+    user: CurrentUser,
+):
+    if not password_hash.verify(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    user.password_hash = password_hash.hash(payload.new_password)
+    record_audit(session, user, "user.password_changed", "user", user.id)
+    session.commit()
+    return {"status": "password_updated"}
 
 
 @app.get("/api/v1/auth/me", response_model=CurrentUserRead, tags=["authentication"])
