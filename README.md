@@ -65,13 +65,13 @@ docker compose up --build
 
 The API requires a bearer token. Docker Compose applies migrations and creates the first organization administrator before starting the API. See [Access control and organization administration](docs/ACCESS_CONTROL.md), [Security policy](docs/SECURITY.md) and [Database migrations and backups](docs/DATABASE.md) for details.
 
-Open the web interface at http://localhost:5173. The API is kept private inside the Compose network. Its interactive documentation is available through the frontend gateway at http://localhost:5173/docs.
+Open the local web interface at http://127.0.0.1:5173. The frontend gateway binds to loopback by default; the API, PostgreSQL and Redis are kept off published host ports. Its interactive documentation is available at http://127.0.0.1:5173/docs. For a future controlled deployment behind a same-host TLS reverse proxy, see [Production deployment checklist](docs/PRODUCTION-DEPLOYMENT.md).
 
 Database schema changes are managed with Alembic. See [Database migrations and backups](docs/DATABASE.md) for migration, backup and restore instructions.
 
 ## Dependency lock maintenance
 
-The source input files are `backend/requirements-runtime.in` and `backend/requirements-dev.in`. The GitHub Actions workflow `Python Dependency Locks` compiles both hash-pinned lock files with pinned pip-tools and commits updated lock files to its branch. To reproduce the generation locally, install the same pinned pip-tools version used by the workflow, then run:
+The source input files are `backend/requirements-runtime.in` and `backend/requirements-dev.in`. The GitHub Actions workflow `Python Dependency Locks` compiles both hash-pinned lock files with pinned pip-tools and opens or updates a dedicated pull request for review. To reproduce the generation locally, install the same pinned pip-tools version used by the workflow, then run:
 
 ```bash
 python -m pip install pip-tools==7.5.1
@@ -120,6 +120,7 @@ Dockerfile
 3. Secrets must never be committed to the repository.
 4. Community and commercial components must have explicit, reviewed boundaries.
 5. Production readiness requires independent security review and operational testing.
+6. Compose publishes only the frontend gateway and binds it to loopback by default; public access must be provided through a separately managed HTTPS reverse proxy and firewall.
 
 ## Licensing
 
