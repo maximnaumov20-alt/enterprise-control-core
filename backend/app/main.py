@@ -346,6 +346,9 @@ class SoftwareLicense(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    record_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __mapper_args__ = {"version_id_col": record_version}
 
 
 class AuditEvent(Base):
@@ -534,6 +537,7 @@ class SoftwareLicenseCreate(BaseModel):
 
 
 class SoftwareLicenseUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=160)
     publisher: str | None = Field(default=None, max_length=120)
     version: str | None = Field(default=None, max_length=80)
@@ -564,6 +568,7 @@ class SoftwareLicenseRead(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+    record_version: int
 
 
 class PasswordChange(BaseModel):
@@ -1724,7 +1729,9 @@ def update_software_license(
     ))
     if license_record is None:
         raise HTTPException(status_code=404, detail="Software license not found")
-    changes = payload.model_dump(exclude_unset=True)
+    if payload.expected_version != license_record.record_version:
+        raise HTTPException(status_code=409, detail="Software license has changed. Reload the license before saving.")
+    changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
     for required_field in ("name", "license_type", "seats_total", "seats_used", "status"):
         if required_field in changes and changes[required_field] is None:
             raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
@@ -1756,11 +1763,11 @@ def update_software_license(
                 {"fields": sorted(changes)},
             )
             session.commit()
-        except IntegrityError:
+        except (IntegrityError, StaleDataError):
             session.rollback()
             raise HTTPException(
                 status_code=409,
-                detail="Software license update conflicts with current organization records",
+                detail="Software license update conflicts with current organization records or stale version",
             )
     session.refresh(license_record)
     return license_record
