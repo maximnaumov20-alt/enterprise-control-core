@@ -1330,3 +1330,27 @@ def test_noop_department_update_does_not_create_audit_event(client: TestClient) 
     after = client.get("/api/v1/audit-events")
     assert after.status_code == 200
     assert [event["id"] for event in after.json()] == before_ids
+
+
+def test_noop_employee_update_does_not_create_audit_event(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/employees",
+        json={"employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
+    )
+    assert created.status_code == 201
+    employee_id = created.json()["id"]
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    updated = client.patch(
+        f"/api/v1/employees/{employee_id}",
+        json={"employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["employee_number"] == "NOOP-EMP-001"
+
+    after = client.get("/api/v1/audit-events")
+    assert after.status_code == 200
+    assert [event["id"] for event in after.json()] == before_ids
