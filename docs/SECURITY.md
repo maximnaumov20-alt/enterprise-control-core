@@ -12,7 +12,8 @@ ECC is an early-development project. Authentication, role checks, organization-s
 - Asset reads and writes are scoped to the authenticated user's organization. Organization IDs are never accepted from asset request bodies.
 - Asset inventory identifiers are unique within an organization rather than globally.
 - Basic audit events are recorded for asset and user changes and are visible only to organization administrators.
-- Users can change their password after authenticating; new passwords must be at least 12 characters.\n- Initial administrator creation is a deployment/bootstrap operation, not a public registration endpoint.
+- Users can change their password after authenticating; new passwords must be at least 12 characters.
+- Initial administrator creation is a deployment/bootstrap operation, not a public registration endpoint.
 
 ## Important remaining limitations
 
