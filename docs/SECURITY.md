@@ -8,6 +8,7 @@ ECC is an early-development project. Authentication, role checks, organization-s
 
 - Passwords are hashed with Argon2 through pwdlib; plaintext passwords are never stored.
 - API access uses short-lived signed bearer tokens. The signing key is supplied through `ECC_SECRET_KEY`; the API refuses authentication when it is missing. Keys shorter than 32 bytes are rejected.
+- A per-user `token_version` claim is checked on authenticated requests. Changing a password or changing a user's active state increments the stored version and invalidates that user's previously issued access tokens.
 - The API container runs as a non-root user, has a health check and is not published directly to the host in the Compose deployment; browser traffic reaches it through the Nginx gateway.
 - The production frontend is served by Nginx with a same-origin API reverse proxy and baseline content-type, frame, referrer and content-security-policy headers.
 - Roles are `admin`, `editor` and `viewer`. The API enforces permissions server-side.
@@ -17,11 +18,12 @@ ECC is an early-development project. Authentication, role checks, organization-s
 - Basic audit events are recorded for asset and user changes and are visible only to organization administrators.
 - Users can change their password after authenticating; new passwords must be at least 12 characters.
 - Initial administrator creation is a deployment/bootstrap operation, not a public registration endpoint.
+- Login throttling allows 10 attempts per client IP in a 60-second fixed window, using Redis as a shared counter store in the Compose deployment.
 
 ## Important remaining limitations
 
-- Access tokens currently have no refresh-token or server-side revocation list. Disabling an account blocks its next request, but a stolen token remains usable until expiry.
-- Account lockout, MFA, password reset and email verification are not implemented. Login throttling is implemented as described below.
+- There is no refresh-token flow or individual-token revocation list. The per-user token version invalidates all of a user's existing access tokens after a password change or active-state change; it does not provide selective revocation for a single token. Otherwise, a stolen token can remain usable until expiry.
+- Account lockout, MFA, password reset and email verification are not implemented.
 - Audit events are application-level records, not tamper-proof or cryptographically chained. Database administrators can alter them.
 - Organization provisioning is currently performed by the bootstrap command. There is no self-service tenant signup.
 - There is no independent penetration test, formal threat model, production backup/restore certification or compliance assessment.
@@ -35,28 +37,19 @@ A private vulnerability reporting channel has not yet been configured. Do not pu
 
 - Independent security review and penetration testing
 - HTTPS at the deployment boundary and strict network access controls
-- Rate limiting and abuse protection for authentication
 - MFA and secure account recovery
-- Refresh-token rotation or another revocation strategy
+- Refresh-token rotation or another suitable revocation strategy
 - Tamper-evident audit retention and restricted database administration
 - Encrypted off-host backups and regularly tested restores
 - Dependency, container and application security scanning
 - Documented incident response, monitoring and retention policies
 
-
 ## Login rate limiting
 
 The login endpoint allows 10 attempts per client IP in a 60-second fixed window.
-Compose runs Redis and the API uses it as a shared counter store, so limits apply
-across API workers and instances that share the same Redis database. If Redis is
-unavailable, login requests fail closed with HTTP 503 rather than silently
-disabling throttling.
 
-The in-memory limiter is only a development/test fallback when `REDIS_URL` is
-not configured. Do not use that fallback with multiple workers or API replicas.
+Compose runs Redis and the API uses it as a shared counter store, so limits apply across API workers and instances that share the same Redis database. If Redis is unavailable, login requests fail closed with HTTP 503 rather than silently disabling throttling.
 
-The API obtains the client address from `X-Real-IP` when present. This header is
-trusted only because the supplied Nginx gateway overwrites it with the TCP peer
-address. Keep the API on a private network, do not publish its port directly,
-and use a trusted reverse proxy that overwrites `X-Real-IP`. The application
-intentionally does not trust arbitrary `X-Forwarded-For` values.
+The in-memory limiter is only a development/test fallback when `REDIS_URL` is not configured. Do not use that fallback with multiple workers or API replicas.
+
+The API obtains the client address from `X-Real-IP` when present. This header is trusted only because the supplied Nginx gateway overwrites it with the TCP peer address. Keep the API on a private network, do not publish its port directly, and use a trusted reverse proxy that overwrites `X-Real-IP`. The application intentionally does not trust arbitrary `X-Forwarded-For` values.
