@@ -34,6 +34,11 @@
 - [ ] Installation and upgrade documentation
 - [ ] Independent security review
 
+## Licensing and release governance
+- [ ] Complete third-party dependency and bundled-asset licence/provenance audit (initial audit register and release checklist added; lockfiles, release SBOM and verified notices still pending)
+- [ ] Add deterministic dependency lockfiles and release-specific SBOM generation
+- [ ] Finalize Community licence, commercial agreement and contributor terms with qualified legal review
+
 ## Phase 3 - commercial edition
 - [ ] Define and document Community/Enterprise boundaries
 - [ ] Separate private commercial modules
