@@ -797,3 +797,30 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
     # Only assert entity types that currently emit creation audit events.
     assert any(event["entity_id"] == str(asset_a["id"]) for event in events_a)
     assert any(event["entity_id"] == str(maintenance_a["id"]) for event in events_a)
+
+
+
+def test_asset_csv_export_never_includes_other_tenant_assets(client: TestClient) -> None:
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "Company A export", "asset_tag": "EXPORT-A-001", "category": "Laptop"},
+    )
+    assert asset_a.status_code == 201
+
+    use_role(client, "other_admin")
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "Company B export", "asset_tag": "EXPORT-B-001", "category": "Laptop"},
+    )
+    assert asset_b.status_code == 201
+
+    export_b = client.get("/api/v1/assets/export")
+    assert export_b.status_code == 200
+    assert "EXPORT-B-001" in export_b.text
+    assert "EXPORT-A-001" not in export_b.text
+
+    use_role(client, "admin")
+    export_a = client.get("/api/v1/assets/export")
+    assert export_a.status_code == 200
+    assert "EXPORT-A-001" in export_a.text
+    assert "EXPORT-B-001" not in export_a.text
