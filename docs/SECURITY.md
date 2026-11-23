@@ -21,7 +21,7 @@ ECC is an early-development project. Authentication, role checks, organization-s
 ## Important remaining limitations
 
 - Access tokens currently have no refresh-token or server-side revocation list. Disabling an account blocks its next request, but a stolen token remains usable until expiry.
-- Login throttling, account lockout, MFA, password reset and email verification are not implemented.
+- Account lockout, MFA, password reset and email verification are not implemented. Login throttling is implemented as described below.
 - Audit events are application-level records, not tamper-proof or cryptographically chained. Database administrators can alter them.
 - Organization provisioning is currently performed by the bootstrap command. There is no self-service tenant signup.
 - There is no independent penetration test, formal threat model, production backup/restore certification or compliance assessment.
