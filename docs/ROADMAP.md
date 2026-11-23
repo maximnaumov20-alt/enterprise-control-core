@@ -5,18 +5,18 @@
 - [x] FastAPI service and health endpoint
 - [x] Basic asset CRUD API
 - [x] Local PostgreSQL Docker Compose stack
-- [ ] Automated tests and CI workflow
-- [ ] Versioned database migrations
+- [x] Automated tests and CI workflow
+- [x] Versioned database migrations
 
 ## Phase 1 - usable Community Edition
-- [ ] Authentication and secure password handling
-- [ ] Organizations, departments and users
-- [ ] Tenant isolation and role-based access control
+- [x] Authentication and secure password handling
+- [x] Organization and user foundation\n- [ ] Departments and organization administration UI
+- [x] Tenant isolation and role-based access control
 - [ ] Asset import/export
 - [ ] Software and licence register
 - [ ] Maintenance requests
-- [ ] Audit events
-- [ ] Web user interface
+- [x] Basic audit events
+- [x] Asset inventory web interface with sign-in and role-aware controls
 
 ## Phase 2 - operational readiness
 - [ ] Backup and restore procedures
