@@ -1,4 +1,16 @@
 export type AssetStatus = "active" | "in_repair" | "retired";
+export type UserRole = "admin" | "editor" | "viewer";
+
+export interface CurrentUser {
+  id: number;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  is_active: boolean;
+  organization_id: number;
+  organization_name: string;
+  created_at: string;
+}
 
 export interface Asset {
   id: number;
@@ -16,12 +28,29 @@ export interface Asset {
 
 export type AssetInput = Omit<Asset, "id" | "created_at" | "updated_at">;
 
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+let accessToken: string | null = null;
+
+export function setAccessToken(token: string | null) {
+  accessToken = token;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers }
+    headers: {
+      ...(init?.body instanceof URLSearchParams
+        ? { "Content-Type": "application/x-www-form-urlencoded" }
+        : { "Content-Type": "application/json" }),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...init?.headers
+    }
   });
   if (!response.ok) {
     let message = `Ошибка API: ${response.status}`;
@@ -29,6 +58,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const body = await response.json();
       message = typeof body.detail === "string" ? body.detail : message;
     } catch { /* response did not contain JSON */ }
+    if (response.status === 401) setAccessToken(null);
     throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
@@ -37,6 +67,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<{ status: string }>("/health"),
+  login: (email: string, password: string) =>
+    request<TokenResponse>("/api/v1/auth/token", {
+      method: "POST",
+      body: new URLSearchParams({ username: email, password })
+    }),
+  me: () => request<CurrentUser>("/api/v1/auth/me"),
   assets: (search = "") => request<Asset[]>(`/api/v1/assets?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`),
   createAsset: (asset: AssetInput) => request<Asset>("/api/v1/assets", { method: "POST", body: JSON.stringify(asset) }),
   updateAsset: (id: number, asset: Partial<AssetInput>) => request<Asset>(`/api/v1/assets/${id}`, { method: "PATCH", body: JSON.stringify(asset) }),
