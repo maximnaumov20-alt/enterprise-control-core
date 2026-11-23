@@ -215,6 +215,7 @@ jobs:
         run: |
           bash -n scripts/backup-postgres.sh
           bash -n scripts/restore-postgres.sh
+          bash -n scripts/upload-backup-s3.sh
 
       - name: Install ShellCheck
         run: |
@@ -222,4 +223,4 @@ jobs:
           sudo apt-get install --yes shellcheck
 
       - name: Lint maintenance scripts
-        run: shellcheck --severity=warning scripts/backup-postgres.sh scripts/restore-postgres.sh
+        run: shellcheck --severity=warning scripts/backup-postgres.sh scripts/restore-postgres.sh scripts/upload-backup-s3.sh
