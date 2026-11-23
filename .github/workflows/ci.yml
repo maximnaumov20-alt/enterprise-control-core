@@ -225,3 +225,6 @@ jobs:
 
       - name: Lint maintenance scripts
         run: shellcheck --severity=warning scripts/backup-postgres.sh scripts/restore-postgres.sh scripts/upload-backup-s3.sh scripts/run-backup.sh
+
+      - name: Test S3 uploader with a fake AWS CLI
+        run: python scripts/tests/test_upload_backup_s3.py
