@@ -26,7 +26,15 @@ for cidr in $trusted_proxies; do
                     exit 1
                     ;;
             esac
-            if [ "$prefix" -gt 128 ]; then
+            case "$cidr" in
+                *:*)
+                    max_prefix=128
+                    ;;
+                *)
+                    max_prefix=32
+                    ;;
+            esac
+            if [ "$prefix" -gt "$max_prefix" ]; then
                 echo "Proxy network prefix is out of range: $cidr" >&2
                 exit 1
             fi
