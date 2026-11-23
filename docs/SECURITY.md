@@ -42,3 +42,21 @@ A private vulnerability reporting channel has not yet been configured. Do not pu
 - Encrypted off-host backups and regularly tested restores
 - Dependency, container and application security scanning
 - Documented incident response, monitoring and retention policies
+
+
+## Login rate limiting
+
+The login endpoint allows 10 attempts per client IP in a 60-second fixed window.
+Compose runs Redis and the API uses it as a shared counter store, so limits apply
+across API workers and instances that share the same Redis database. If Redis is
+unavailable, login requests fail closed with HTTP 503 rather than silently
+disabling throttling.
+
+The in-memory limiter is only a development/test fallback when `REDIS_URL` is
+not configured. Do not use that fallback with multiple workers or API replicas.
+
+The API obtains the client address from `X-Real-IP` when present. This header is
+trusted only because the supplied Nginx gateway overwrites it with the TCP peer
+address. Keep the API on a private network, do not publish its port directly,
+and use a trusted reverse proxy that overwrites `X-Real-IP`. The application
+intentionally does not trust arbitrary `X-Forwarded-For` values.
