@@ -15,7 +15,7 @@ from app.main import (
 
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
-    monkeypatch.setattr(main, "SECRET_KEY", "test-only-secret-key")
+    monkeypatch.setattr(main, "SECRET_KEY", "test-only-secret-key-that-is-longer-than-32-bytes")
     test_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -82,6 +82,16 @@ def test_health_endpoint(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_password_login_returns_bearer_token(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin@a.test", "password": "test-password-admin-123"},
+    )
+    assert response.status_code == 200
+    assert response.json()["token_type"] == "bearer"
+    assert response.json()["expires_in"] == 1200
 
 
 def test_authentication_required_for_assets(client: TestClient) -> None:
@@ -165,7 +175,7 @@ def test_admin_can_create_users_and_viewer_cannot(client: TestClient) -> None:
     response = client.post(
         "/api/v1/users",
         json={
-            "email": "new.user@a.test",
+            "email": "new.user@example.com",
             "full_name": "New User",
             "password": "long-enough-password",
             "role": "viewer",
