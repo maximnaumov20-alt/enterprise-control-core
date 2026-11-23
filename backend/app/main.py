@@ -1510,21 +1510,21 @@ def update_maintenance_request(
         ))
         if assignee is None:
             raise HTTPException(status_code=422, detail="Assignee must be an active user in this organization")
-    audit_fields = set(changes)
     resolved_at = request_record.resolved_at
     if changes.get("status") == MaintenanceStatus.resolved and resolved_at is None:
         resolved_at = datetime.now(timezone.utc)
     elif changes.get("status") in (MaintenanceStatus.open, MaintenanceStatus.in_progress):
         resolved_at = None
-    if resolved_at != request_record.resolved_at:
-        audit_fields.add("resolved_at")
+    resolved_at_changed = resolved_at != request_record.resolved_at
     changes = {
         field: value for field, value in changes.items()
         if getattr(request_record, field) != value
     }
-    if resolved_at != request_record.resolved_at:
+    audit_fields = set(changes)
+    if resolved_at_changed:
+        audit_fields.add("resolved_at")
         request_record.resolved_at = resolved_at
-    if changes or "resolved_at" in audit_fields:
+    if changes or resolved_at_changed:
         for field, value in changes.items():
             setattr(request_record, field, value)
         record_audit(
