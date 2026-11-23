@@ -29,7 +29,7 @@
 - [x] Login rate limiting with shared Redis counters
 - [ ] Additional API security headers and deployment hardening
 - [x] Python and npm dependency vulnerability scanning in GitHub Actions (`pip-audit`, `npm audit`)
-- [ ] Container image vulnerability scanning
+- [x] Container image vulnerability scanning for unfixed critical vulnerabilities with Trivy
 - [ ] Automated integration tests against PostgreSQL
 - [ ] Installation and upgrade documentation
 - [ ] Independent security review
