@@ -26,6 +26,10 @@ for cidr in $trusted_proxies; do
                     exit 1
                     ;;
             esac
+            if [ "$prefix" -eq 0 ]; then
+                echo "A global /0 network cannot be trusted for client IP forwarding: $cidr" >&2
+                exit 1
+            fi
             case "$cidr" in
                 *:*)
                     max_prefix=128
