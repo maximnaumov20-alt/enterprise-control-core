@@ -32,6 +32,14 @@ export interface Asset {
 
 export type AssetInput = Omit<Asset, "id" | "created_at" | "updated_at">;
 
+export interface AssetHistoryEvent {
+  id: number;
+  actor_user_id: number | null;
+  action: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface Department {
   id: number;
   name: string;
@@ -227,6 +235,7 @@ export const api = {
   deleteSoftwareLicense: (id: number) =>
     request<void>(`/api/v1/software-licenses/${id}`, { method: "DELETE" }),
   assets: (search = "") => request<Asset[]>(`/api/v1/assets?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`),
+  assetHistory: (id: number) => request<AssetHistoryEvent[]>(`/api/v1/assets/${id}/history?limit=100`),
   exportAssetsCsv: () => downloadAssetCsv(),
   importAssetsCsv: (file: File) => uploadAssetCsv(file),
   createAsset: (asset: AssetInput) => request<Asset>("/api/v1/assets", { method: "POST", body: JSON.stringify(asset) }),
