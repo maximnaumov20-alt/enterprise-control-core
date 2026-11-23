@@ -232,6 +232,41 @@ def test_asset_delete_referenced_by_maintenance_returns_conflict_without_audit(c
     assert actions.count("maintenance_request.created") == 1
 
 
+def test_asset_create_audit_integrity_conflict_rolls_back_asset(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_audit(*args, **kwargs):
+        raise IntegrityError("insert audit event", {}, Exception("audit constraint"))
+
+    monkeypatch.setattr(main, "record_audit", fail_audit)
+    response = client.post(
+        "/api/v1/assets",
+        json={"name": "Audit conflict laptop", "asset_tag": "AUDIT-CREATE-001", "category": "Laptop"},
+    )
+    assert response.status_code == 409
+    assert client.get("/api/v1/assets").json() == []
+
+
+def test_asset_update_audit_integrity_conflict_rolls_back_changes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={"name": "Original laptop", "asset_tag": "AUDIT-UPDATE-001", "category": "Laptop"},
+    )
+    asset_id = created.json()["id"]
+
+    def fail_audit(*args, **kwargs):
+        raise IntegrityError("insert audit event", {}, Exception("audit constraint"))
+
+    monkeypatch.setattr(main, "record_audit", fail_audit)
+    response = client.patch(f"/api/v1/assets/{asset_id}", json={"name": "Must roll back"})
+    assert response.status_code == 409
+    refreshed = client.get(f"/api/v1/assets/{asset_id}")
+    assert refreshed.status_code == 200
+    assert refreshed.json()["name"] == "Original laptop"
+
+
 def test_asset_history_is_tenant_scoped_and_readable_by_viewer(client: TestClient) -> None:
     created = client.post(
         "/api/v1/assets",

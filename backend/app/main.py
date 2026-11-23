@@ -871,14 +871,14 @@ def create_asset(payload: AssetCreate, session: SessionDep, user: Annotated[User
     session.add(asset)
     try:
         session.flush()
+        record_audit(session, user, "asset.created", "asset", asset.id, {
+            "asset_tag": asset.asset_tag, "name": asset.name, "category": asset.category,
+            "status": asset.status.value,
+        })
+        session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Asset tag or serial number already exists")
-    record_audit(session, user, "asset.created", "asset", asset.id, {
-        "asset_tag": asset.asset_tag, "name": asset.name, "category": asset.category,
-        "status": asset.status.value,
-    })
-    session.commit()
+        raise HTTPException(status_code=409, detail="Asset creation conflicts with existing organization records")
     session.refresh(asset)
     return asset
 
@@ -1108,14 +1108,14 @@ def update_asset(
         return asset
     try:
         session.flush()
+        record_audit(
+            session, user, "asset.updated", "asset", asset.id,
+            {"changes": before_after},
+        )
+        session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Serial number already exists")
-    record_audit(
-        session, user, "asset.updated", "asset", asset.id,
-        {"changes": before_after},
-    )
-    session.commit()
+        raise HTTPException(status_code=409, detail="Asset update conflicts with existing organization records")
     session.refresh(asset)
     return asset
 
