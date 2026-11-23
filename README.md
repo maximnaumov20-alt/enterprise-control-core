@@ -115,4 +115,4 @@ Do not use these drafts as signed agreements. The legal rightsholder, third-part
 
 ## Contributing
 
-Contribution rules will be published after the licence and governance model are selected. Please open an issue to discuss a proposed feature before submitting substantial work.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the current contribution policy. Until licensing and contributor permissions are finalized, issues and discussions are welcome, but external code contributions are not accepted for merging.
