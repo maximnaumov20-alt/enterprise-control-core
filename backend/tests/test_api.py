@@ -33,22 +33,22 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
         session.flush()
         users = {
             "admin": User(
-                organization_id=org_a.id, email="admin@a.test", full_name="Admin",
+                organization_id=org_a.id, email="admin.a@example.com", full_name="Admin",
                 password_hash=password_hash.hash("test-password-admin-123"),
                 role=UserRole.admin,
             ),
             "editor": User(
-                organization_id=org_a.id, email="editor@a.test", full_name="Editor",
+                organization_id=org_a.id, email="editor.a@example.com", full_name="Editor",
                 password_hash=password_hash.hash("test-password-editor-123"),
                 role=UserRole.editor,
             ),
             "viewer": User(
-                organization_id=org_a.id, email="viewer@a.test", full_name="Viewer",
+                organization_id=org_a.id, email="viewer.a@example.com", full_name="Viewer",
                 password_hash=password_hash.hash("test-password-viewer-123"),
                 role=UserRole.viewer,
             ),
             "other_admin": User(
-                organization_id=org_b.id, email="admin@b.test", full_name="Other Admin",
+                organization_id=org_b.id, email="admin.b@example.com", full_name="Other Admin",
                 password_hash=password_hash.hash("test-password-other-123"),
                 role=UserRole.admin,
             ),
@@ -87,7 +87,7 @@ def test_health_endpoint(client: TestClient) -> None:
 def test_password_login_returns_bearer_token(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/token",
-        data={"username": "admin@a.test", "password": "test-password-admin-123"},
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
     )
     assert response.status_code == 200
     assert response.json()["token_type"] == "bearer"
@@ -204,7 +204,7 @@ def test_admin_cannot_demote_own_account(client: TestClient) -> None:
 
 def test_deactivated_user_token_is_rejected(client: TestClient) -> None:
     users = client.get("/api/v1/users").json()
-    editor = next(user for user in users if user["email"] == "editor@a.test")
+    editor = next(user for user in users if user["email"] == "editor.a@example.com")
     disabled = client.patch(
         f"/api/v1/users/{editor['id']}",
         json={"is_active": False},
@@ -218,4 +218,4 @@ def test_user_listing_is_organization_scoped(client: TestClient) -> None:
     use_role(client, "other_admin")
     users = client.get("/api/v1/users")
     assert users.status_code == 200
-    assert [user["email"] for user in users.json()] == ["admin@b.test"]
+    assert [user["email"] for user in users.json()] == ["admin.b@example.com"]
