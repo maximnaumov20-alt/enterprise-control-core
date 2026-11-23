@@ -177,3 +177,22 @@ jobs:
 
           docker compose exec -T api alembic current
           docker compose down --volumes
+
+  shell-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Bash syntax
+        run: |
+          bash -n scripts/backup-postgres.sh
+          bash -n scripts/restore-postgres.sh
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+
+      - name: Lint maintenance scripts
+        run: shellcheck --severity=warning scripts/backup-postgres.sh scripts/restore-postgres.sh
