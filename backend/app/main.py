@@ -795,11 +795,11 @@ def create_user(
     session.add(user)
     try:
         session.flush()
+        record_audit(session, admin, "user.created", "user", user.id, {"role": user.role.value})
+        session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Email is already registered")
-    record_audit(session, admin, "user.created", "user", user.id, {"role": user.role.value})
-    session.commit()
     session.refresh(user)
     return user
 
@@ -840,8 +840,12 @@ def update_user(
         target.token_version += 1
     for field, value in changes.items():
         setattr(target, field, value)
-    record_audit(session, admin, "user.updated", "user", target.id, {"fields": sorted(changes)})
-    session.commit()
+    try:
+        record_audit(session, admin, "user.updated", "user", target.id, {"fields": sorted(changes)})
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="User update conflicts with current organization records")
     session.refresh(target)
     return target
 
