@@ -10,7 +10,7 @@
 | Change maintenance request status or assignee | Yes | Yes | No |
 | Create, edit and delete assets and software licences in own organization | Yes | Yes | No |
 | Create and manage users in own organization | Yes | No | No |
-| View own organization's audit events | Yes | No | No |
+| Manage departments | Yes | No | No |\n| View and manage employee directory | Yes | Yes | No |\n| View own organization's audit events | Yes | No | No |
 
 All permissions are enforced by the API. Hiding controls in the web interface is only a usability feature, not a security boundary.
 
