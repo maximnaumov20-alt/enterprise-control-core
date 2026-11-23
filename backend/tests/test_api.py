@@ -279,3 +279,104 @@ def test_software_license_access_is_tenant_scoped_and_viewer_read_only(client: T
     use_role(client, "other_admin")
     assert client.get("/api/v1/software-licenses").json() == []
     assert client.get(f"/api/v1/software-licenses/{license_id}").status_code == 404
+
+
+def test_maintenance_request_creation_assignment_and_resolution(client: TestClient) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Server", "asset_tag": "SRV-MAINT-01", "category": "Server"},
+    ).json()
+    users = client.get("/api/v1/users").json()
+    editor = next(user for user in users if user["email"] == "editor.a@example.com")
+    viewer = next(user for user in users if user["email"] == "viewer.a@example.com")
+
+    use_role(client, "viewer")
+    created = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset["id"],
+            "title": "Server overheating",
+            "description": "The server reports high temperature.",
+            "priority": "high",
+        },
+    )
+    assert created.status_code == 201
+    request_id = created.json()["id"]
+    assert created.json()["requested_by_user_id"] == viewer["id"]
+    assert len(client.get("/api/v1/maintenance-requests").json()) == 1
+
+    use_role(client, "editor")
+    assigned = client.patch(
+        f"/api/v1/maintenance-requests/{request_id}",
+        json={"assigned_to_user_id": editor["id"], "status": "in_progress"},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["assigned_to_user_id"] == editor["id"]
+
+    resolved = client.patch(
+        f"/api/v1/maintenance-requests/{request_id}",
+        json={"status": "resolved"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["resolved_at"] is not None
+
+
+def test_maintenance_requests_are_private_to_requester_and_organization(client: TestClient) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Workstation", "asset_tag": "PC-MAINT-01", "category": "Computer"},
+    ).json()
+    created = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset["id"],
+            "title": "Keyboard failure",
+            "description": "Several keys are not responding.",
+        },
+    )
+    assert created.status_code == 201
+    request_id = created.json()["id"]
+
+    use_role(client, "viewer")
+    assert client.get(f"/api/v1/maintenance-requests/{request_id}").status_code == 404
+    assert client.patch(
+        f"/api/v1/maintenance-requests/{request_id}",
+        json={"status": "resolved"},
+    ).status_code == 403
+
+    use_role(client, "other_admin")
+    assert client.get("/api/v1/maintenance-requests").json() == []
+    assert client.get(f"/api/v1/maintenance-requests/{request_id}").status_code == 404
+    assert client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset["id"],
+            "title": "Cross tenant",
+            "description": "This should not be allowed.",
+        },
+    ).status_code == 404
+
+
+def test_maintenance_assignment_cannot_cross_organizations(client: TestClient) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Network switch", "asset_tag": "SW-MAINT-01", "category": "Network"},
+    ).json()
+    request_record = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset["id"],
+            "title": "Port failure",
+            "description": "One switch port is down.",
+        },
+    ).json()
+    other_admin = client.app.state.test_tokens["other_admin"]
+    use_role(client, "admin")
+    users = client.get("/api/v1/users").json()
+    other_id = 4
+    assert other_admin
+    response = client.patch(
+        f"/api/v1/maintenance-requests/{request_record['id']}",
+        json={"assigned_to_user_id": other_id},
+    )
+    assert response.status_code == 422
