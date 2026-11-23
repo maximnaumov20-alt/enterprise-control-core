@@ -996,3 +996,29 @@ def test_empty_user_update_does_not_create_audit_event(client: TestClient) -> No
     after = client.get("/api/v1/audit-events")
     assert after.status_code == 200
     assert [event["id"] for event in after.json()] == before_ids
+
+
+def test_password_change_allows_new_password_and_rejects_old_password(client: TestClient) -> None:
+    changed = client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": "test-password-admin-123",
+            "new_password": "replacement-password-456",
+        },
+    )
+    assert changed.status_code == 200
+
+    old_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "replacement-password-456"},
+    )
+    assert new_login.status_code == 200
+    assert new_login.json()["token_type"] == "bearer"
+    client.headers.update({"Authorization": f"Bearer {new_login.json()['access_token']}"})
+    assert client.get("/api/v1/auth/me").status_code == 200
