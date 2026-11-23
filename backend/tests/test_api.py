@@ -128,6 +128,21 @@ def test_login_rate_limit_cannot_be_bypassed_with_forwarded_header(client: TestC
     assert other_ip.status_code == 429
 
 
+def test_login_rate_limit_uses_nginx_client_ip_header(client: TestClient) -> None:
+    for _ in range(10):
+        client.post(
+            "/api/v1/auth/token",
+            data={"username": "missing@example.com", "password": "wrong-password"},
+        )
+
+    response = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+        headers={"X-Real-IP": "203.0.113.10"},
+    )
+    assert response.status_code == 200
+
+
 def test_in_memory_login_rate_limiter_expires_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     limiter = main.LoginRateLimiter(max_attempts=1, window_seconds=60)
     clock = {"now": 100.0}
