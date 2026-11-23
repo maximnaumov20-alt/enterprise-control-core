@@ -118,7 +118,7 @@ def test_editor_role_matrix_allows_operational_writes_but_not_admin_actions(clie
     use_role(client, "editor")
 
     assert client.patch(
-        f"/api/v1/assets/{asset['id']}", json={"name": "Updated by editor"}
+        f"/api/v1/assets/{asset['id']}", json={"name": "Updated by editor", "expected_version": asset["version"]}
     ).status_code == 200
     assert client.patch(
         f"/api/v1/software-licenses/{license_record['id']}", json={"seats_used": 3}
@@ -215,7 +215,7 @@ def test_viewer_role_is_read_only_except_own_maintenance_requests(client: TestCl
         json={"name": "Forbidden", "asset_tag": "VIEW-FORBIDDEN", "category": "Laptop"},
     ).status_code == 403
     assert client.patch(
-        f"/api/v1/assets/{asset['id']}", json={"name": "Forbidden"}
+        f"/api/v1/assets/{asset['id']}", json={"name": "Forbidden", "expected_version": asset["version"]}
     ).status_code == 403
     assert client.delete(f"/api/v1/assets/{asset['id']}").status_code == 403
     assert client.patch(
