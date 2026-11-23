@@ -105,6 +105,17 @@ jobs:
             -e "s/^ECC_ADMIN_EMAIL=.*/ECC_ADMIN_EMAIL=ci-admin@example.com/" \
             -e "s/^ECC_ADMIN_PASSWORD=.*/ECC_ADMIN_PASSWORD=ci-admin-password-123456/" .env
           docker compose config --quiet
+          docker compose config --format json | python -c '
+          import json, sys
+          config = json.load(sys.stdin)
+          ports = config["services"]["frontend"]["ports"]
+          assert any(
+              port.get("target") == 80
+              and str(port.get("published")) == "5173"
+              and port.get("host_ip") == "127.0.0.1"
+              for port in ports
+          ), f"Frontend must bind to loopback by default: {ports}"
+          '
           rm .env
 
       - name: Build API image
