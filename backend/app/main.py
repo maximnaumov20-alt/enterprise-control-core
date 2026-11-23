@@ -1003,17 +1003,63 @@ def update_asset(
     for required_field in ("name", "category"):
         if required_field in changes and changes[required_field] is None:
             raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
+    before_after: dict[str, dict[str, str | None]] = {}
     for field, value in changes.items():
+        old_value = getattr(asset, field)
+        old_value = old_value.value if isinstance(old_value, Enum) else old_value
+        new_value = value.value if isinstance(value, Enum) else value
+        if old_value != new_value:
+            before_after[field] = {"old": old_value, "new": new_value}
         setattr(asset, field, value)
+    if not before_after:
+        return asset
     try:
         session.flush()
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Serial number already exists")
-    record_audit(session, user, "asset.updated", "asset", asset.id, {"fields": sorted(changes)})
+    record_audit(
+        session, user, "asset.updated", "asset", asset.id,
+        {"changes": before_after},
+    )
     session.commit()
     session.refresh(asset)
     return asset
+
+
+@app.get("/api/v1/assets/{asset_id}/history", tags=["assets"])
+def asset_history(
+    asset_id: int,
+    session: SessionDep,
+    user: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    asset = session.scalar(select(Asset.id).where(
+        Asset.id == asset_id,
+        Asset.organization_id == user.organization_id,
+    ))
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    events = session.scalars(
+        select(AuditEvent)
+        .where(
+            AuditEvent.organization_id == user.organization_id,
+            AuditEvent.entity_type == "asset",
+            AuditEvent.entity_id == str(asset_id),
+        )
+        .order_by(AuditEvent.id.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": event.id,
+            "actor_user_id": event.actor_user_id,
+            "action": event.action,
+            "details": event.details,
+            "created_at": event.created_at,
+        }
+        for event in events
+    ]
 
 
 @app.delete("/api/v1/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["assets"])
