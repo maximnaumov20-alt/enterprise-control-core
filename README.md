@@ -1,6 +1,6 @@
 # Enterprise Control Center (ECC)
 
-Open-core platform for managing company IT assets, software inventory and maintenance requests.
+Planned open-core platform for managing company IT assets, software inventory and maintenance requests.
 
 > **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, role-based permissions, organization-scoped asset access and basic audit events are implemented. Production hardening, independent security review, MFA, rate limiting and tamper-evident audit storage remain outstanding. Do not use it with sensitive or production data.
 
@@ -79,6 +79,7 @@ frontend/
     App.tsx
     api.ts
     style.css
+  nginx.conf
   Dockerfile
   package.json
 docs/
