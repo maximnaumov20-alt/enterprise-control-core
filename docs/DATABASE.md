@@ -71,6 +71,25 @@ ECC_BACKUP_DIR=./backups/postgres ECC_BACKUP_RETENTION_DAYS=30 \
 
 Encryption protects archive contents at rest but does not create an off-host copy, protect a compromised host during backup, or guarantee key recovery. Store encrypted archives in a separate failure domain with access controls and retention protections. Test private-key recovery independently.
 
+## Off-host upload to Amazon S3
+
+The optional uploader sends an already-encrypted `.dump.age` archive to an S3 bucket and verifies the uploaded object's recorded SHA-256 metadata and size. It refuses plaintext dumps.
+
+Install AWS CLI v2 and configure credentials through an instance/task role or the standard AWS credential chain. Do not put access keys in the repository, script arguments, or committed environment files. The identity used by the job should have only the required `s3:PutObject` and `s3:HeadObject` permissions for the backup prefix.
+
+Example:
+
+```bash
+ECC_BACKUP_S3_URI=s3://company-ecc-backups/production \
+  bash scripts/upload-backup-s3.sh ./backups/postgres/ecc-postgres-YYYYMMDDTHHMMSSZ.dump.age
+```
+
+The uploader uses S3-managed encryption (SSE-S3) by default. To use a customer-managed KMS key, set `ECC_BACKUP_S3_SSE=aws:kms` and `ECC_BACKUP_S3_KMS_KEY_ID`; grant the upload identity the minimum KMS permissions needed for that key. The archive remains age-encrypted independently of S3 server-side encryption.
+
+Configure bucket versioning, lifecycle retention, public-access blocking, least-privilege policies and (where supported/required) Object Lock in the cloud account. Those bucket controls are infrastructure configuration and are not created by this script. Keep the age private identity separate from both the application host and the bucket. Periodically test downloading an object and restoring it in an isolated environment.
+
+The upload script verifies remote metadata and size, not a full read-back of the remote object. A successful upload is not proof of recoverability until a download, decryption and database restore test has succeeded.
+
 ## Restore
 
 Restore replaces database objects in the configured `ecc` database. Stop application writes first, confirm the Compose project points to the intended environment and preserve a separate backup of the current database.
