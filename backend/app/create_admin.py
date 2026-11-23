@@ -13,6 +13,8 @@ def main() -> None:
 
     if not email or not password or not organization_name:
         raise SystemExit("Set ECC_ADMIN_EMAIL, ECC_ADMIN_PASSWORD and ECC_ORGANIZATION_NAME before running.")
+    if "REPLACE_WITH" in password or "REPLACE_WITH" in email:
+        raise SystemExit("Replace all sample placeholders before creating the administrator.")
     if len(password) < 12:
         raise SystemExit("ECC_ADMIN_PASSWORD must contain at least 12 characters.")
 
