@@ -949,6 +949,8 @@ def bulk_update_assets(
                 if old_value != new_value:
                     changes[field] = {"old": old_value, "new": new_value}
                     values[field] = value
+            if not changes:
+                continue
             result = session.execute(
                 sql_update(Asset)
                 .where(
@@ -1163,6 +1165,8 @@ def update_asset(
         new_value = value.value if isinstance(value, Enum) else value
         if old_value != new_value:
             before_after[field] = {"old": old_value, "new": new_value}
+    if not before_after:
+        return asset
     try:
         result = session.execute(
             sql_update(Asset)
