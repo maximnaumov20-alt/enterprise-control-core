@@ -40,18 +40,37 @@ docker compose up --build
 
 The initial administrator credentials are used only by the one-shot bootstrap container. To provision another organization, run the bootstrap command with a new `ECC_ORGANIZATION_NAME` and a new administrator email; do not reuse an email already registered in the system.
 
-## Backups
+## Logical backups
 
-For PostgreSQL, create a logical backup before upgrades:
-
-```bash
-docker compose exec -T db pg_dump -U ecc -d ecc > ecc-backup.sql
-```
-
-Restore only into a deliberately selected database after checking the target:
+The repository provides a backup script for the PostgreSQL Compose service. Run it from the repository root:
 
 ```bash
-docker compose exec -T db psql -U ecc -d ecc < ecc-backup.sql
+bash scripts/backup-postgres.sh
 ```
 
-These commands are basic operator guidance, not a tested disaster-recovery service. Production deployments still need encrypted off-host backups, retention rules, access controls and regularly tested restore procedures.
+The script:
+- checks that PostgreSQL is accepting connections;
+- creates a PostgreSQL custom-format dump;
+- verifies the archive with `pg_restore --list` before publishing it;
+- writes files with owner-only permissions where supported;
+- retains the most recent 14 days by default.
+
+Optional settings:
+
+```bash
+ECC_BACKUP_DIR=./backups/postgres ECC_BACKUP_RETENTION_DAYS=30 bash scripts/backup-postgres.sh
+```
+
+Backups are stored locally and are **not encrypted or copied off-host by this script**. Treat them as sensitive database exports. Restrict host access, encrypt them using an approved storage or backup system, and maintain a separate off-host copy. Do not commit backup files to Git.
+
+## Restore
+
+Restore replaces database objects in the configured `ecc` database. Stop application writes first and confirm that the Compose project points to the intended environment. Keep a separate backup of the current database before proceeding.
+
+```bash
+ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh ./backups/postgres/ecc-postgres-YYYYMMDDTHHMMSSZ.dump
+```
+
+The script refuses to run without the explicit confirmation variable, checks the target database name and validates the archive before restoring. PostgreSQL executes the restore in one transaction; a failed restore is rolled back where PostgreSQL supports transactional execution. Afterward, verify application health, migration state and representative records before allowing users back in.
+
+These scripts are an operational starting point, not a certified disaster-recovery system. They do not provide encryption, off-site replication, point-in-time recovery, automated scheduling, cloud retention locking or a tested recovery-time/recovery-point guarantee. Test recovery regularly in an isolated environment before production use.
