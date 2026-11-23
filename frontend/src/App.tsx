@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, Department, Employee, EmployeeInput, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
+import { api, Asset, AssetInput, AssetStatus, AssetHistoryEvent, AuditEvent, CurrentUser, Department, Employee, EmployeeInput, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
 
 const emptyForm: AssetInput = {
   name: "", asset_tag: "", category: "Компьютер", manufacturer: "",
@@ -51,6 +51,9 @@ export default function App() {
   const [assetImportFile, setAssetImportFile] = useState<File | null>(null);
   const [assetImporting, setAssetImporting] = useState(false);
   const [assetImportSummary, setAssetImportSummary] = useState<{ created: number; skipped: number; errors: { row: number; error: string }[] } | null>(null);
+  const [historyAsset, setHistoryAsset] = useState<Asset | null>(null);
+  const [assetHistory, setAssetHistory] = useState<AssetHistoryEvent[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [apiOnline, setApiOnline] = useState(false);
@@ -377,6 +380,18 @@ export default function App() {
     } finally { setSaving(false); }
   }
 
+  async function openAssetHistory(asset: Asset) {
+    setHistoryAsset(asset);
+    setAssetHistory([]);
+    setHistoryLoading(true);
+    try {
+      setAssetHistory(await api.assetHistory(asset.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить историю актива");
+      setHistoryAsset(null);
+    } finally { setHistoryLoading(false); }
+  }
+
   async function exportAssets() {
     setError("");
     try {
@@ -445,6 +460,24 @@ export default function App() {
     </aside>
 
     <main className="main">
+      {historyAsset && <div className="modal-overlay" role="presentation" onClick={() => setHistoryAsset(null)}>
+        <section className="modal-card history-modal" role="dialog" aria-modal="true" aria-labelledby="asset-history-title" onClick={e => e.stopPropagation()}>
+          <div className="panel-heading"><div><h2 id="asset-history-title">История оборудования</h2><p>{historyAsset.name} · {historyAsset.asset_tag}</p></div><button type="button" className="subtle" onClick={() => setHistoryAsset(null)}>Закрыть</button></div>
+          {historyLoading ? <div className="empty">Загрузка истории...</div> : assetHistory.length === 0 ? <div className="empty">Записей пока нет.</div> : <ol className="history-list">
+            {assetHistory.map(event => {
+              const changes = (event.details.changes || {}) as Record<string, { old: unknown; new: unknown }>;
+              const labels: Record<string, string> = { name: "Название", asset_tag: "Инвентарный номер", category: "Категория", manufacturer: "Производитель", model: "Модель", serial_number: "Серийный номер", assigned_to: "Ответственный", status: "Статус" };
+              const actionLabels: Record<string, string> = { "asset.created": "Создание актива", "asset.imported": "Импорт актива", "asset.updated": "Изменение актива", "asset.deleted": "Удаление актива" };
+              return <li key={event.id}>
+                <div className="history-event-head"><strong>{actionLabels[event.action] || event.action}</strong><time>{new Date(event.created_at).toLocaleString()}</time></div>
+                <small>Пользователь ID: {event.actor_user_id ?? "учётная запись удалена"}</small>
+                {Object.entries(changes).map(([field, values]) => <div className="history-change" key={field}><span>{labels[field] || field}:</span> {String(values.old ?? "—")} → {String(values.new ?? "—")}</div>)}
+                {!Object.keys(changes).length && <div className="history-change">{String(event.details.name || event.details.asset_tag || "")}</div>}
+              </li>;
+            })}
+          </ol>}
+        </section>
+      </div>}
       {showPasswordForm && <div className="modal-overlay"><form className="modal-card" onSubmit={submitPasswordChange}>
         <div className="panel-heading"><div><h2>Смена пароля</h2><p>Новый пароль должен содержать не менее 12 символов</p></div><button type="button" className="subtle" onClick={() => setShowPasswordForm(false)}>Закрыть</button></div>
         <label>Текущий пароль<input type="password" required autoComplete="current-password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} /></label>
@@ -498,8 +531,8 @@ export default function App() {
         <div className="panel-heading"><div><h2>Реестр оборудования</h2><p>Список зарегистрированных активов</p></div><input className="search" value={search} onChange={e => { setSearch(e.target.value); void loadAssets(e.target.value); }} placeholder="⌕  Поиск по названию..." /></div>
         {error && <div className="alert">{error}<button onClick={() => void loadAssets()}>Повторить</button></div>}
         {loading ? <div className="empty">Загрузка данных...</div> : assets.length === 0 ? <div className="empty">Активы не найдены. Добавьте первую запись в форму выше.</div> :
-          <div className="table-wrap"><table><thead><tr><th>ОБОРУДОВАНИЕ</th><th>ИНВ. НОМЕР</th><th>КАТЕГОРИЯ</th><th>ОТВЕТСТВЕННЫЙ</th><th>СТАТУС</th><th></th></tr></thead><tbody>
-            {assets.map(asset => <tr key={asset.id}><td><strong>{asset.name}</strong><small>{[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "Производитель не указан"}</small></td><td className="mono">{asset.asset_tag}</td><td>{asset.category}</td><td>{asset.assigned_to || "—"}</td><td><span className={`status status-${asset.status}`}>{statusLabels[asset.status]}</span></td>{currentUser.role !== "viewer" ? <td className="actions"><button title="Редактировать" onClick={() => beginEdit(asset)}>Изменить</button><button className="danger" title="Удалить" onClick={() => void removeAsset(asset)}>Удалить</button></td> : <td />}</tr>)}
+          <div className="table-wrap"><table><thead><tr><th>ОБОРУДОВАНИЕ</th><th>ИНВ. НОМЕР</th><th>КАТЕГОРИЯ</th><th>ОТВЕТСТВЕННЫЙ</th><th>СТАТУС</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
+            {assets.map(asset => <tr key={asset.id}><td><strong>{asset.name}</strong><small>{[asset.manufacturer, asset.model].filter(Boolean).join(" ") || "Производитель не указан"}</small></td><td className="mono">{asset.asset_tag}</td><td>{asset.category}</td><td>{asset.assigned_to || "—"}</td><td><span className={`status status-${asset.status}`}>{statusLabels[asset.status]}</span></td><td className="actions"><button title="История изменений" onClick={() => void openAssetHistory(asset)}>История</button>{currentUser.role !== "viewer" && <><button title="Редактировать" onClick={() => beginEdit(asset)}>Изменить</button><button className="danger" title="Удалить" onClick={() => void removeAsset(asset)}>Удалить</button></>}</td></tr>)}
           </tbody></table></div>}
       </section>
       <footer>Enterprise Control Center <span>·</span> Community Edition <span>·</span> Незавершённая разработка</footer>
