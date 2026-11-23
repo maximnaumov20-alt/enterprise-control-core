@@ -628,6 +628,7 @@ def test_software_license_inventory_crud_and_seat_validation(client: TestClient)
     created = client.post("/api/v1/software-licenses", json=payload)
     assert created.status_code == 201
     license_id = created.json()["id"]
+    license_version = created.json()["record_version"]
 
     listed = client.get("/api/v1/software-licenses")
     assert listed.status_code == 200
@@ -635,16 +636,24 @@ def test_software_license_inventory_crud_and_seat_validation(client: TestClient)
 
     invalid_update = client.patch(
         f"/api/v1/software-licenses/{license_id}",
-        json={"seats_total": 4},
+        json={"expected_version": license_version, "seats_total": 4},
     )
     assert invalid_update.status_code == 422
 
     updated = client.patch(
         f"/api/v1/software-licenses/{license_id}",
-        json={"seats_used": 10},
+        json={"expected_version": license_version, "seats_used": 10},
     )
     assert updated.status_code == 200
     assert updated.json()["seats_used"] == 10
+    assert updated.json()["record_version"] == license_version + 1
+
+    stale = client.patch(
+        f"/api/v1/software-licenses/{license_id}",
+        json={"expected_version": license_version, "name": "Stale overwrite"},
+    )
+    assert stale.status_code == 409
+    assert client.get(f"/api/v1/software-licenses/{license_id}").json()["name"] == "Office Suite"
 
     duplicate = client.post("/api/v1/software-licenses", json=payload)
     assert duplicate.status_code == 409
@@ -668,6 +677,7 @@ def test_software_license_update_integrity_error_rolls_back_without_audit(
     )
     assert created.status_code == 201
     license_id = created.json()["id"]
+    license_version = created.json()["record_version"]
     existing_audit_ids = {
         event["id"] for event in client.get("/api/v1/audit-events").json()
     }
@@ -681,12 +691,12 @@ def test_software_license_update_integrity_error_rolls_back_without_audit(
     monkeypatch.setattr(main, "record_audit", fail_license_update_audit)
     response = client.patch(
         f"/api/v1/software-licenses/{license_id}",
-        json={"name": "Partially Updated License"},
+        json={"expected_version": license_version, "name": "Partially Updated License"},
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        "Software license update conflicts with current organization records"
+        "Software license update conflicts with current organization records or stale version"
     )
     stored = client.get(f"/api/v1/software-licenses/{license_id}")
     assert stored.status_code == 200
@@ -981,7 +991,7 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
     assert client.delete(f"/api/v1/employees/{employee_b['id']}").status_code == 404
     assert client.get(f"/api/v1/software-licenses/{license_b['id']}").status_code == 404
     assert client.patch(
-        f"/api/v1/software-licenses/{license_b['id']}", json={"name": "Hijacked"}
+        f"/api/v1/software-licenses/{license_b['id']}", json={"expected_version": 1, "name": "Hijacked"}
     ).status_code == 404
     assert client.delete(f"/api/v1/software-licenses/{license_b['id']}").status_code == 404
     assert client.get(
@@ -1704,6 +1714,7 @@ def test_noop_software_license_update_does_not_create_audit_event(client: TestCl
     unchanged = client.patch(
         f"/api/v1/software-licenses/{license_id}",
         json={
+            "expected_version": 1,
             "name": " Office Suite ",
             "license_reference": " NOOP-LICENSE-001 ",
             "seats_total": 20,
