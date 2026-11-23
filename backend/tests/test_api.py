@@ -1055,3 +1055,40 @@ def test_failed_password_change_does_not_create_audit_event(client: TestClient) 
     after = client.get("/api/v1/audit-events")
     assert after.status_code == 200
     assert [event["id"] for event in after.json()] == before_ids
+
+
+
+def test_asset_creation_audit_records_actor_and_consistent_entity_details(client: TestClient) -> None:
+    current_user = client.get("/api/v1/auth/me")
+    assert current_user.status_code == 200
+    actor_id = current_user.json()["id"]
+
+    created = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "Audit Attribution Server",
+            "asset_tag": "AUDIT-ACTOR-001",
+            "category": "Server",
+            "status": "active",
+        },
+    )
+    assert created.status_code == 201
+    asset_id = created.json()["id"]
+
+    response = client.get("/api/v1/audit-events")
+    assert response.status_code == 200
+    matching = [
+        event for event in response.json()
+        if event["action"] == "asset.created"
+        and event["entity_type"] == "asset"
+        and event["entity_id"] == str(asset_id)
+    ]
+    assert len(matching) == 1
+    event = matching[0]
+    assert event["actor_user_id"] == actor_id
+    assert event["details"] == {
+        "asset_tag": "AUDIT-ACTOR-001",
+        "name": "Audit Attribution Server",
+        "category": "Server",
+        "status": "active",
+    }
