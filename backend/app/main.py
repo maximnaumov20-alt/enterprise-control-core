@@ -13,7 +13,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy import (
-    CheckConstraint, Date, DateTime, Enum as SAEnum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint,
+    CheckConstraint, Date, DateTime, Enum as SAEnum, ForeignKey, ForeignKeyConstraint, Integer, JSON, String, Text, UniqueConstraint,
     create_engine, select,
 )
 from sqlalchemy.exc import IntegrityError
@@ -53,6 +53,20 @@ class UserRole(str, Enum):
     viewer = "viewer"
 
 
+class MaintenancePriority(str, Enum):
+    low = "low"
+    normal = "normal"
+    high = "high"
+    urgent = "urgent"
+
+
+class MaintenanceStatus(str, Enum):
+    open = "open"
+    in_progress = "in_progress"
+    resolved = "resolved"
+    cancelled = "cancelled"
+
+
 class SoftwareLicenseType(str, Enum):
     subscription = "subscription"
     perpetual = "perpetual"
@@ -78,6 +92,9 @@ class Organization(Base):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "id", name="uq_users_org_id_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     organization_id: Mapped[int] = mapped_column(
@@ -100,6 +117,7 @@ class Asset(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "asset_tag", name="uq_assets_org_asset_tag"),
         UniqueConstraint("organization_id", "serial_number", name="uq_assets_org_serial_number"),
+        UniqueConstraint("organization_id", "id", name="uq_assets_org_id_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -125,6 +143,58 @@ class Asset(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+
+class MaintenanceRequest(Base):
+    __tablename__ = "maintenance_requests"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "asset_id"],
+            ["assets.organization_id", "assets.id"],
+            ondelete="RESTRICT",
+            name="fk_maintenance_asset_same_org",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "requested_by_user_id"],
+            ["users.organization_id", "users.id"],
+            ondelete="RESTRICT",
+            name="fk_maintenance_requester_same_org",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "assigned_to_user_id"],
+            ["users.organization_id", "users.id"],
+            ondelete="RESTRICT",
+            name="fk_maintenance_assignee_same_org",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    asset_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    requested_by_user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    assigned_to_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[MaintenancePriority] = mapped_column(
+        SAEnum(MaintenancePriority, native_enum=False, length=8),
+        default=MaintenancePriority.normal,
+        nullable=False,
+    )
+    status: Mapped[MaintenanceStatus] = mapped_column(
+        SAEnum(MaintenanceStatus, native_enum=False, length=16),
+        default=MaintenanceStatus.open,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SoftwareLicense(Base):
@@ -221,6 +291,37 @@ class AssetRead(BaseModel):
     status: AssetStatus
     created_at: datetime
     updated_at: datetime
+
+
+class MaintenanceRequestCreate(BaseModel):
+    asset_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=4000)
+    priority: MaintenancePriority = MaintenancePriority.normal
+
+
+class MaintenanceRequestUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, min_length=1, max_length=4000)
+    priority: MaintenancePriority | None = None
+    status: MaintenanceStatus | None = None
+    assigned_to_user_id: int | None = Field(default=None, gt=0)
+
+
+class MaintenanceRequestRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    asset_id: int
+    requested_by_user_id: int
+    assigned_to_user_id: int | None
+    title: str
+    description: str
+    priority: MaintenancePriority
+    status: MaintenanceStatus
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None
 
 
 class SoftwareLicenseCreate(BaseModel):
@@ -636,6 +737,139 @@ def delete_asset(
     session.delete(asset)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    "/api/v1/maintenance-requests",
+    response_model=MaintenanceRequestRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["maintenance"],
+)
+def create_maintenance_request(
+    payload: MaintenanceRequestCreate,
+    session: SessionDep,
+    user: CurrentUser,
+):
+    asset = session.scalar(select(Asset).where(
+        Asset.id == payload.asset_id,
+        Asset.organization_id == user.organization_id,
+    ))
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    title = payload.title.strip()
+    description = payload.description.strip()
+    if not title or not description:
+        raise HTTPException(status_code=422, detail="Title and description cannot be blank")
+    request_record = MaintenanceRequest(
+        organization_id=user.organization_id,
+        asset_id=asset.id,
+        requested_by_user_id=user.id,
+        title=title,
+        description=description,
+        priority=payload.priority,
+    )
+    session.add(request_record)
+    session.flush()
+    record_audit(
+        session, user, "maintenance_request.created", "maintenance_request",
+        request_record.id, {"asset_id": asset.id, "priority": request_record.priority.value},
+    )
+    session.commit()
+    session.refresh(request_record)
+    return request_record
+
+
+@app.get(
+    "/api/v1/maintenance-requests",
+    response_model=list[MaintenanceRequestRead],
+    tags=["maintenance"],
+)
+def list_maintenance_requests(
+    session: SessionDep,
+    user: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    statement = select(MaintenanceRequest).where(
+        MaintenanceRequest.organization_id == user.organization_id
+    )
+    if user.role == UserRole.viewer:
+        statement = statement.where(MaintenanceRequest.requested_by_user_id == user.id)
+    statement = statement.order_by(MaintenanceRequest.id.desc()).limit(limit)
+    return list(session.scalars(statement).all())
+
+
+@app.get(
+    "/api/v1/maintenance-requests/{request_id}",
+    response_model=MaintenanceRequestRead,
+    tags=["maintenance"],
+)
+def get_maintenance_request(
+    request_id: int,
+    session: SessionDep,
+    user: CurrentUser,
+):
+    statement = select(MaintenanceRequest).where(
+        MaintenanceRequest.id == request_id,
+        MaintenanceRequest.organization_id == user.organization_id,
+    )
+    if user.role == UserRole.viewer:
+        statement = statement.where(MaintenanceRequest.requested_by_user_id == user.id)
+    request_record = session.scalar(statement)
+    if request_record is None:
+        raise HTTPException(status_code=404, detail="Maintenance request not found")
+    return request_record
+
+
+@app.patch(
+    "/api/v1/maintenance-requests/{request_id}",
+    response_model=MaintenanceRequestRead,
+    tags=["maintenance"],
+)
+def update_maintenance_request(
+    request_id: int,
+    payload: MaintenanceRequestUpdate,
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    request_record = session.scalar(select(MaintenanceRequest).where(
+        MaintenanceRequest.id == request_id,
+        MaintenanceRequest.organization_id == user.organization_id,
+    ))
+    if request_record is None:
+        raise HTTPException(status_code=404, detail="Maintenance request not found")
+    changes = payload.model_dump(exclude_unset=True)
+    for required_field in ("title", "description", "priority", "status"):
+        if required_field in changes and changes[required_field] is None:
+            raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
+    if "title" in changes:
+        changes["title"] = changes["title"].strip()
+        if not changes["title"]:
+            raise HTTPException(status_code=422, detail="title cannot be blank")
+    if "description" in changes:
+        changes["description"] = changes["description"].strip()
+        if not changes["description"]:
+            raise HTTPException(status_code=422, detail="description cannot be blank")
+    if changes.get("assigned_to_user_id") is not None:
+        assignee = session.scalar(select(User).where(
+            User.id == changes["assigned_to_user_id"],
+            User.organization_id == user.organization_id,
+            User.is_active.is_(True),
+        ))
+        if assignee is None:
+            raise HTTPException(status_code=422, detail="Assignee must be an active user in this organization")
+    if changes.get("status") == MaintenanceStatus.resolved:
+        request_record.resolved_at = datetime.now(timezone.utc)
+    elif changes.get("status") in (MaintenanceStatus.open, MaintenanceStatus.in_progress):
+        request_record.resolved_at = None
+    for field, value in changes.items():
+        setattr(request_record, field, value)
+    record_audit(
+        session, user, "maintenance_request.updated", "maintenance_request",
+        request_record.id, {"fields": sorted(changes)},
+    )
+    session.commit()
+    session.refresh(request_record)
+    return request_record
 
 
 @app.post(
