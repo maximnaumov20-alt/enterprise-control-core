@@ -925,23 +925,22 @@ def bulk_update_assets(
 
     requested = payload.model_dump(exclude_unset=True, exclude={"asset_ids"})
     changed_count = 0
-    for asset in assets:
-        changes: dict[str, dict[str, str | None]] = {}
-        for field, value in requested.items():
-            old_value = getattr(asset, field)
-            old_value = old_value.value if isinstance(old_value, Enum) else old_value
-            new_value = value.value if isinstance(value, Enum) else value
-            if old_value != new_value:
-                changes[field] = {"old": old_value, "new": new_value}
-                setattr(asset, field, value)
-        if changes:
-            record_audit(
-                session, user, "asset.updated", "asset", asset.id,
-                {"changes": changes, "source": "bulk"},
-            )
-            changed_count += 1
-
     try:
+        for asset in assets:
+            changes: dict[str, dict[str, str | None]] = {}
+            for field, value in requested.items():
+                old_value = getattr(asset, field)
+                old_value = old_value.value if isinstance(old_value, Enum) else old_value
+                new_value = value.value if isinstance(value, Enum) else value
+                if old_value != new_value:
+                    changes[field] = {"old": old_value, "new": new_value}
+                    setattr(asset, field, value)
+            if changes:
+                record_audit(
+                    session, user, "asset.updated", "asset", asset.id,
+                    {"changes": changes, "source": "bulk"},
+                )
+                changed_count += 1
         session.commit()
     except IntegrityError:
         session.rollback()
