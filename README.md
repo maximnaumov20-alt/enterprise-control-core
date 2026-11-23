@@ -29,7 +29,7 @@ Requirements: Python 3.12+.
 ```bash
 cd backend
 python -m venv .venv
-# Windows: .venv\Scripts\activate
+# Windows: .venv\\Scripts\\activate
 # macOS/Linux:
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -87,6 +87,7 @@ docs/
   SECURITY.md
   DATABASE.md
   ACCESS_CONTROL.md
+  licensing/
 docker-compose.yml
 Dockerfile
 
@@ -102,7 +103,15 @@ Dockerfile
 
 ## Licensing
 
-No open-source licence has been selected yet. Until a licence is added, standard copyright applies; public visibility alone does not grant permission to reuse, modify or redistribute this code. The licensing model must be decided before accepting outside contributions or advertising the project as open source.
+No binding software licence has been selected or published yet. Until one is approved, standard copyright applies; public visibility alone does not grant permission to reuse, modify or redistribute this code.
+
+The intended direction is a source-available Community Edition for non-commercial use, with commercial use governed by a separate written licence. This is not an Open Source licence under the Open Source Definition. The documents below are planning drafts only and do not grant rights:
+
+- [Licensing strategy](docs/licensing/LICENSING-STRATEGY.md)
+- [Commercial licence agreement outline](docs/licensing/COMMERCIAL-LICENSE-DRAFT.md)
+- [Copyright and contributions plan](docs/licensing/COPYRIGHT-AND-CONTRIBUTIONS-DRAFT.md)
+
+Do not use these drafts as signed agreements. The legal rightsholder, third-party licences and final terms must be verified before publication.
 
 ## Contributing
 
