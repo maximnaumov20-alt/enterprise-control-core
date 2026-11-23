@@ -394,7 +394,7 @@ export default function App() {
 
   async function importAssets() {
     if (!assetImportFile) return;
-    if (!window.confirm(\`Импортировать активы из файла «\${assetImportFile.name}»? Дубликаты будут пропущены.\`)) return;
+    if (!window.confirm(`Импортировать активы из файла «${assetImportFile.name}»? Дубликаты будут пропущены.`)) return;
     setAssetImporting(true);
     setError("");
     setAssetImportSummary(null);
