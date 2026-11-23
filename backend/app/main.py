@@ -869,6 +869,8 @@ MAX_ASSET_IMPORT_ROWS = 5000
 
 
 def _spreadsheet_safe(value: object) -> str:
+    if isinstance(value, Enum):
+        value = value.value
     text = "" if value is None else str(value)
     if text.lstrip(" \t\r\n").startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
         return "'" + text
@@ -917,7 +919,7 @@ async def import_assets(
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="CSV must use UTF-8 encoding")
     try:
-        reader = csv.DictReader(io.StringIO(decoded, newline=""))
+        reader = csv.DictReader(io.StringIO(decoded, newline=""), strict=True)
         headers = reader.fieldnames or []
         if len(headers) != len(set(headers)) or not set(("name", "asset_tag", "category")).issubset(headers):
             raise HTTPException(
@@ -938,6 +940,7 @@ async def import_assets(
     errors = []
     for line_number, row in enumerate(rows, start=2):
         if None in row:
+            skipped += 1
             errors.append({"row": line_number, "error": "Unexpected extra CSV fields"})
             continue
         values = {key: (value.strip() if value is not None else None) for key, value in row.items()}
