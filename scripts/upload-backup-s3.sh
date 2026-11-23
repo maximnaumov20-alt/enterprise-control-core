@@ -80,5 +80,21 @@ if [[ "$remote_checksum" != "$checksum" || "$remote_size" != "$file_size" ]]; th
   exit 1
 fi
 
-echo "Encrypted backup uploaded and verified: $object_uri"
+# Read the object back and compare actual bytes; metadata alone is not proof of integrity.
+verification_file="$(mktemp "${TMPDIR:-/tmp}/ecc-s3-verify.XXXXXX")"
+chmod 600 "$verification_file"
+cleanup() {
+  rm -f "$verification_file"
+}
+trap cleanup EXIT
+
+aws s3 cp "$object_uri" "$verification_file" --only-show-errors
+downloaded_checksum="$(sha256sum "$verification_file" | awk '{print $1}')"
+downloaded_size="$(wc -c < "$verification_file" | tr -d '[:space:]')"
+if [[ "$downloaded_checksum" != "$checksum" || "$downloaded_size" != "$file_size" ]]; then
+  echo "Remote read-back verification failed: downloaded archive bytes differ from the local file." >&2
+  exit 1
+fi
+
+echo "Encrypted backup uploaded and read-back verified: $object_uri"
 echo "SHA-256: $checksum"
