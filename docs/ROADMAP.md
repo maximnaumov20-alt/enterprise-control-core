@@ -30,13 +30,13 @@
 - [ ] Additional API security headers and deployment hardening
 - [x] Python and npm dependency vulnerability scanning in GitHub Actions (`pip-audit`, `npm audit`)
 - [x] Container image vulnerability scanning for unfixed critical vulnerabilities with Trivy
-- [ ] Automated integration tests against PostgreSQL
+- [x] Automated PostgreSQL integration coverage in Docker Compose CI (API smoke tests, tenant-backed records, and encrypted backup/restore recovery)
 - [ ] Installation and upgrade documentation
 - [ ] Independent security review
 
 ## Licensing and release governance
 - [ ] Complete third-party dependency and bundled-asset licence/provenance audit (initial audit register and release checklist added; lockfiles, release SBOM and verified notices still pending)
-- [ ] Add deterministic dependency lockfiles and release-specific SBOM generation
+- [ ] Add deterministic dependency lockfiles and complete release-specific SBOM generation (CI now publishes provisional CycloneDX SBOM artifacts for both container images; lockfiles, source/dependency inventory and release archival remain pending)
 - [ ] Finalize Community licence, commercial agreement and contributor terms with qualified legal review
 
 ## Phase 3 - commercial edition
