@@ -2091,3 +2091,40 @@ def test_password_change_audit_integrity_error_rolls_back_credentials(
     assert {
         event["id"] for event in client.get("/api/v1/audit-events").json()
     } == existing_audit_ids
+
+
+def test_asset_delete_audit_integrity_error_rolls_back_asset(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "Asset to preserve",
+            "asset_tag": "DEL-AUDIT-ROLLBACK",
+            "category": "Laptop",
+        },
+    )
+    assert created.status_code == 201
+    asset_id = created.json()["id"]
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+
+    def fail_asset_delete_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "asset.deleted":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        raise AssertionError(f"Unexpected audit action: {action}")
+
+    monkeypatch.setattr(main, "record_audit", fail_asset_delete_audit)
+    response = client.delete(f"/api/v1/assets/{asset_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Asset deletion conflicts with current organization records"
+    )
+    stored = client.get(f"/api/v1/assets/{asset_id}")
+    assert stored.status_code == 200
+    assert stored.json()["asset_tag"] == "DEL-AUDIT-ROLLBACK"
+    assert {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    } == existing_audit_ids
