@@ -20,7 +20,7 @@ The initial development scope is:
 - **API:** REST, documented by OpenAPI at `/docs`
 - **Deployment:** Docker
 
-The current development build includes an asset-inventory API and a React web interface for creating, searching, editing and deleting assets. Employee, software and maintenance modules will be added incrementally.
+The current development build includes a tenant-scoped asset inventory API, bearer-token authentication, admin/editor/viewer roles, organization user administration, basic audit history and a React interface with sign-in, password change and role-aware controls. Employee directory, software/licence inventory and maintenance workflows will be added incrementally.
 
 ## Run locally
 
