@@ -395,8 +395,12 @@ class AssetBulkUpdate(BaseModel):
             raise ValueError("asset_ids must not contain duplicates")
         if any(asset_id <= 0 for asset_id in self.asset_ids):
             raise ValueError("asset_ids must contain positive integers")
+        if "status" in self.model_fields_set and self.status is None:
+            raise ValueError("status cannot be null")
         if not ({"status", "assigned_to"} & self.model_fields_set):
             raise ValueError("At least one field to update is required")
+        if self.assigned_to is not None:
+            self.assigned_to = self.assigned_to.strip() or None
         return self
 
 
