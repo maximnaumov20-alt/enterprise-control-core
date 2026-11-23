@@ -1617,3 +1617,49 @@ def test_software_license_create_integrity_error_rolls_back_without_audit(
     }
     assert audit_ids == existing_audit_ids
 
+def test_software_license_update_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/software-licenses",
+        json={
+            "name": "Update Rollback License",
+            "license_type": "subscription",
+            "license_reference": "UPDATE-ROLLBACK-LICENSE-001",
+            "seats_total": 10,
+            "seats_used": 2,
+        },
+    )
+    assert created.status_code == 201
+    license_id = created.json()["id"]
+    before_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_license_update_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "software_license.updated":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_license_update_audit)
+    response = client.patch(
+        f"/api/v1/software-licenses/{license_id}",
+        json={"name": "Changed License Name"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Software license update conflicts with current organization records"
+    )
+    current = client.get("/api/v1/software-licenses")
+    assert current.status_code == 200
+    assert next(item for item in current.json() if item["id"] == license_id)["name"] == (
+        "Update Rollback License"
+    )
+    after_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert after_audit_ids == before_audit_ids
+
+
