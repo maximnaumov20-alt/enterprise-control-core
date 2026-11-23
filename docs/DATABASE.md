@@ -90,6 +90,8 @@ Configure bucket versioning, lifecycle retention, public-access blocking, least-
 
 The upload script verifies remote metadata and size, not a full read-back of the remote object. A successful upload is not proof of recoverability until a download, decryption and database restore test has succeeded.
 
+The CI suite also exercises the uploader offline with a fake AWS CLI: it checks the successful metadata/size path, rejects checksum and size mismatches, refuses plaintext archives, and validates SSE-KMS argument handling. This tests client-side behavior only; it does not contact AWS or prove provider-side durability.
+
 ## Automated backup cycle
 
 For a host that already runs the ECC Docker Compose stack, `scripts/run-backup.sh` performs one complete cycle: it requires age encryption and an S3 destination, creates and validates a fresh PostgreSQL archive, then uploads that exact new archive. It uses a non-blocking `flock` lock to prevent overlapping jobs and refuses to fall back to plaintext or silently upload an older retained archive.
