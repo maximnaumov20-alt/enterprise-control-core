@@ -1167,7 +1167,14 @@ def delete_asset(
         "status": asset.status.value,
     })
     session.delete(asset)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Asset is referenced by maintenance requests and cannot be deleted",
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
