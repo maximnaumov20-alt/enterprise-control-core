@@ -793,7 +793,11 @@ def create_user(
         role=payload.role,
     )
     session.add(user)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Email is already registered")
     record_audit(session, admin, "user.created", "user", user.id, {"role": user.role.value})
     session.commit()
     session.refresh(user)

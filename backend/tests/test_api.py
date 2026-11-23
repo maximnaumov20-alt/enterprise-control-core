@@ -418,6 +418,27 @@ def test_viewer_cannot_read_audit_log(client: TestClient) -> None:
     assert client.get("/api/v1/audit-events").status_code == 403
 
 
+def test_user_create_integrity_conflict_returns_409_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    def fail_flush(self, objects=None):
+        raise IntegrityError("insert user", {}, Exception("unique constraint"))
+
+    monkeypatch.setattr(main.Session, "flush", fail_flush)
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "email": "race.user@example.com",
+            "full_name": "Race User",
+            "password": "long-enough-password",
+            "role": "viewer",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Email is already registered"
+
 def test_admin_cannot_demote_own_account(client: TestClient) -> None:
     current = client.get("/api/v1/auth/me").json()
     response = client.patch(
