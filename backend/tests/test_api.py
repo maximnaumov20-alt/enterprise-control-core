@@ -1707,3 +1707,42 @@ def test_software_license_create_integrity_error_rolls_back_without_audit(
     }
     assert audit_ids == existing_audit_ids
 
+
+def test_employee_delete_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "EMP-DELETE-ROLLBACK-001",
+            "full_name": "Employee To Keep",
+            "email": "employee.delete.rollback@example.com",
+        },
+    )
+    assert created.status_code == 201
+    employee_id = created.json()["id"]
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_employee_delete_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "employee.deleted":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_employee_delete_audit)
+    response = client.delete(f"/api/v1/employees/{employee_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Employee deletion conflicts with current organization records"
+    )
+    employees = client.get("/api/v1/employees")
+    assert employees.status_code == 200
+    assert any(employee["id"] == employee_id for employee in employees.json())
+    after_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert after_audit_ids == existing_audit_ids
+
