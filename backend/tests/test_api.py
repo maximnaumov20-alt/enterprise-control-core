@@ -824,3 +824,41 @@ def test_asset_csv_export_never_includes_other_tenant_assets(client: TestClient)
     assert export_a.status_code == 200
     assert "EXPORT-A-001" in export_a.text
     assert "EXPORT-B-001" not in export_a.text
+
+
+
+def test_asset_csv_import_export_cannot_cross_tenant_boundaries(client: TestClient) -> None:
+    asset_a = client.post(
+        "/api/v1/assets",
+        json={"name": "A Exported asset", "asset_tag": "CSV-TENANT-A", "category": "Laptop"},
+    )
+    assert asset_a.status_code == 201
+
+    use_role(client, "other_admin")
+    asset_b = client.post(
+        "/api/v1/assets",
+        json={"name": "B Private asset", "asset_tag": "CSV-TENANT-B", "category": "Server"},
+    )
+    assert asset_b.status_code == 201
+
+    # A's export must not disclose Company B's inventory.
+    use_role(client, "admin")
+    exported = client.get("/api/v1/assets/export")
+    assert exported.status_code == 200
+    assert "CSV-TENANT-A" in exported.text
+    assert "CSV-TENANT-B" not in exported.text
+
+    # Import cannot accept a client-supplied organization identifier.
+    malicious_csv = (
+        "name,asset_tag,category,organization_id\\n"
+        "Injected asset,CSV-INJECTED,Laptop,2\\n"
+    )
+    rejected = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", malicious_csv.encode("utf-8"), "text/csv")},
+    )
+    assert rejected.status_code == 422
+    assert all(item["asset_tag"] != "CSV-INJECTED" for item in client.get("/api/v1/assets").json())
+
+    use_role(client, "other_admin")
+    assert client.get("/api/v1/assets").json()[0]["asset_tag"] == "CSV-TENANT-B"
