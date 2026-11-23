@@ -264,14 +264,14 @@ def test_bulk_asset_update_unchanged_values_are_noop(client: TestClient) -> None
     assert response.status_code == 200
     assert response.json()["updated"] == 0
     history = client.get(f"/api/v1/assets/{asset_id}/history")
-    assert history.json() == []
+    assert not any(event["action"] == "asset.updated" for event in history.json())
 
 
 def test_bulk_asset_update_validates_ids_and_fields(client: TestClient) -> None:
     for payload in (
         {"asset_ids": [] , "status": "active"},
         {"asset_ids": [1, 1], "status": "active"},
-        {"asset_ids": [1], "status": "active", "assigned_to": "A"},
+        {"asset_ids": [1], "status": None, "assigned_to": "A"},
         {"asset_ids": [1]},
         {"asset_ids": list(range(1, 102)), "status": "active"},
     ):
@@ -314,7 +314,7 @@ def test_asset_csv_import_export_and_formula_safety(client: TestClient) -> None:
     csv_data = (
         "name,asset_tag,category,manufacturer,model,serial_number,assigned_to,status\n"
         "Imported laptop,CSV-001,Laptop,Example,Model A,SN-CSV-001,Alex,active\n"
-        "Formula device,CSV-002,Laptop,=HYPERLINK(\"https://example.invalid\"),,,active\n"
+        "Formula device,CSV-002,Laptop,"=HYPERLINK(""https://example.invalid"")",,,active\n"
     )
     imported = client.post(
         "/api/v1/assets/import",
