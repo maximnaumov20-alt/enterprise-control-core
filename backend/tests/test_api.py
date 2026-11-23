@@ -1305,3 +1305,28 @@ def test_audit_creation_details_exclude_sensitive_license_and_maintenance_fields
         "Confidential maintenance request",
     ):
         assert sensitive_value not in serialized_audit
+
+
+def test_noop_department_update_does_not_create_audit_event(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/departments",
+        json={"name": "No-op Department", "code": "NOOP"},
+    )
+    assert created.status_code == 201
+    department_id = created.json()["id"]
+
+    before = client.get("/api/v1/audit-events")
+    assert before.status_code == 200
+    before_ids = [event["id"] for event in before.json()]
+
+    updated = client.patch(
+        f"/api/v1/departments/{department_id}",
+        json={"name": "No-op Department", "code": "NOOP"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "No-op Department"
+    assert updated.json()["code"] == "NOOP"
+
+    after = client.get("/api/v1/audit-events")
+    assert after.status_code == 200
+    assert [event["id"] for event in after.json()] == before_ids

@@ -1223,15 +1223,20 @@ def update_department(
             changes[field] = changes[field].strip()
     if "code" in changes:
         changes["code"] = changes["code"].upper()
-    for field, value in changes.items():
-        setattr(department, field, value)
-    try:
-        session.flush()
-    except IntegrityError:
-        session.rollback()
-        raise HTTPException(status_code=409, detail="Department name or code already exists")
-    record_audit(session, admin, "department.updated", "department", department.id)
-    session.commit()
+    changes = {
+        field: value for field, value in changes.items()
+        if getattr(department, field) != value
+    }
+    if changes:
+        for field, value in changes.items():
+            setattr(department, field, value)
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="Department name or code already exists")
+        record_audit(session, admin, "department.updated", "department", department.id)
+        session.commit()
     session.refresh(department)
     return department
 
