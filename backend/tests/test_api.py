@@ -2015,3 +2015,45 @@ def test_department_update_audit_integrity_error_rolls_back_changes(
     assert {
         event["id"] for event in client.get("/api/v1/audit-events").json()
     } == existing_audit_ids
+
+
+def test_password_change_audit_integrity_error_rolls_back_credentials(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+
+    def fail_password_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "user.password_changed":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        raise AssertionError(f"Unexpected audit action: {action}")
+
+    monkeypatch.setattr(main, "record_audit", fail_password_audit)
+    response = client.post(
+        "/api/v1/auth/change-password",
+        json={
+            "current_password": "test-password-admin-123",
+            "new_password": "replacement-password-456",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Password change conflicts with current account records"
+    )
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+    old_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    assert old_login.status_code == 200
+    new_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "replacement-password-456"},
+    )
+    assert new_login.status_code == 401
+    assert {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    } == existing_audit_ids
