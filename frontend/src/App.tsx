@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
+import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, Department, Employee, EmployeeInput, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
 
 const emptyForm: AssetInput = {
   name: "", asset_tag: "", category: "Компьютер", manufacturer: "",
@@ -22,6 +22,11 @@ const licenseTypeLabels: Record<SoftwareLicenseType, string> = {
 
 const licenseStatusLabels: Record<SoftwareLicenseStatus, string> = {
   active: "Активна", suspended: "Приостановлена", retired: "Закрыта"
+};
+
+const emptyEmployeeForm: EmployeeInput = {
+  employee_number: "", full_name: "", department_id: null,
+  email: null, job_title: "", phone: ""
 };
 
 const emptyMaintenanceForm: MaintenanceRequestInput = {
@@ -51,7 +56,14 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [section, setSection] = useState<"assets" | "software" | "maintenance" | "users" | "audit">("assets");
+  const [section, setSection] = useState<"assets" | "software" | "maintenance" | "employees" | "users" | "audit">("assets");
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeeForm, setEmployeeForm] = useState<EmployeeInput>(emptyEmployeeForm);
+  const [editingEmployeeId, setEditingEmployeeId] = useState<number | null>(null);
+  const [employeeSaving, setEmployeeSaving] = useState(false);
+  const [departmentForm, setDepartmentForm] = useState({ name: "", code: "" });
+  const [departmentSaving, setDepartmentSaving] = useState(false);
   const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
   const [maintenanceForm, setMaintenanceForm] = useState<MaintenanceRequestInput>(emptyMaintenanceForm);
   const [maintenanceSaving, setMaintenanceSaving] = useState(false);
@@ -130,6 +142,72 @@ export default function App() {
       setNotice("");
       setError(e instanceof Error ? e.message : "Не удалось изменить пароль");
     } finally { setPasswordSaving(false); }
+  }
+
+  async function openEmployees() {
+    setSection("employees");
+    setError("");
+    try {
+      const [employeeItems, departmentItems] = await Promise.all([api.employees(), api.departments()]);
+      setEmployees(employeeItems);
+      setDepartments(departmentItems);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить сотрудников"); }
+  }
+
+  function beginEmployeeEdit(item: Employee) {
+    setEditingEmployeeId(item.id);
+    setEmployeeForm({
+      employee_number: item.employee_number,
+      full_name: item.full_name,
+      department_id: item.department_id,
+      email: item.email,
+      job_title: item.job_title || "",
+      phone: item.phone || ""
+    });
+  }
+
+  async function submitEmployee(event: FormEvent) {
+    event.preventDefault();
+    setEmployeeSaving(true);
+    setError("");
+    try {
+      const payload = {
+        ...employeeForm,
+        employee_number: employeeForm.employee_number.trim(),
+        full_name: employeeForm.full_name.trim(),
+        email: employeeForm.email?.trim() || null,
+        job_title: employeeForm.job_title?.trim() || null,
+        phone: employeeForm.phone?.trim() || null
+      };
+      if (editingEmployeeId === null) await api.createEmployee(payload);
+      else await api.updateEmployee(editingEmployeeId, payload);
+      setEditingEmployeeId(null);
+      setEmployeeForm(emptyEmployeeForm);
+      setEmployees(await api.employees());
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось сохранить сотрудника"); }
+    finally { setEmployeeSaving(false); }
+  }
+
+  async function createDepartment(event: FormEvent) {
+    event.preventDefault();
+    setDepartmentSaving(true);
+    setError("");
+    try {
+      await api.createDepartment({
+        name: departmentForm.name.trim(),
+        code: departmentForm.code.trim().toUpperCase()
+      });
+      setDepartmentForm({ name: "", code: "" });
+      setDepartments(await api.departments());
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать подразделение"); }
+    finally { setDepartmentSaving(false); }
+  }
+
+  async function toggleEmployee(employee: Employee) {
+    try {
+      await api.updateEmployee(employee.id, { is_active: !employee.is_active });
+      setEmployees(await api.employees());
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось изменить статус сотрудника"); }
   }
 
   async function openMaintenance() {
@@ -324,6 +402,7 @@ export default function App() {
       <button type="button" className={`nav-item ${section === "assets" ? "active" : ""}`} onClick={() => setSection("assets")}><span>▦</span> Оборудование</button>
       <button type="button" className={`nav-item ${section === "software" ? "active" : ""}`} onClick={() => void openSoftware()}><span>▤</span> Лицензии ПО</button>
       <button type="button" className={`nav-item ${section === "maintenance" ? "active" : ""}`} onClick={() => void openMaintenance()}><span>⚙</span> Обслуживание</button>
+      {currentUser.role !== "viewer" && <button type="button" className={`nav-item ${section === "employees" ? "active" : ""}`} onClick={() => void openEmployees()}><span>♙</span> Сотрудники</button>}
       {currentUser.role === "admin" && <>
         <button type="button" className={`nav-item ${section === "users" ? "active" : ""}`} onClick={() => void openUsers()}><span>♙</span> Пользователи</button>
         <button type="button" className={`nav-item ${section === "audit" ? "active" : ""}`} onClick={() => void openAudit()}><span>≡</span> Журнал действий</button>
@@ -340,7 +419,7 @@ export default function App() {
         <button className="primary" type="submit" disabled={passwordSaving}>{passwordSaving ? "Сохранение..." : "Изменить пароль"}</button>
       </form></div>}
       {notice && <div className="notice">{notice}</div>}
-      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "software" ? "Лицензии ПО" : section === "maintenance" ? "Обслуживание" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "software" ? "Лицензии ПО" : section === "maintenance" ? "Обслуживание" : section === "employees" ? "Сотрудники" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
       {section === "assets" && <>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
 
@@ -427,6 +506,39 @@ export default function App() {
           <div className="panel-heading"><div><h2>Заявки</h2><p>{maintenanceRequests.length} записей</p></div><button className="subtle" onClick={() => void openMaintenance()}>Обновить</button></div>
           {maintenanceRequests.length === 0 ? <div className="empty">Заявок пока нет.</div> : <div className="table-wrap"><table><thead><tr><th>ЗАЯВКА</th><th>АКТИВ ID</th><th>ИНИЦИАТОР</th><th>ПРИОРИТЕТ</th><th>СТАТУС</th><th>ДАТА</th></tr></thead><tbody>
             {maintenanceRequests.map(item => <tr key={item.id}><td><strong>{item.title}</strong><small>{item.description}</small></td><td>{item.asset_id}</td><td>{item.requested_by_user_id}</td><td>{maintenancePriorityLabels[item.priority]}</td><td>{currentUser.role === "viewer" ? <span className="status status-in_repair">{maintenanceStatusLabels[item.status]}</span> : <select value={item.status} onChange={e => void changeMaintenanceStatus(item, e.target.value as MaintenanceStatus)}><option value="open">Открыта</option><option value="in_progress">В работе</option><option value="resolved">Решена</option><option value="cancelled">Отменена</option></select>}</td><td>{new Date(item.created_at).toLocaleDateString()}</td></tr>)}
+          </tbody></table></div>}
+        </section>
+      </section>}
+
+      {section === "employees" && currentUser.role !== "viewer" && <section className="admin-section">
+        <div className="page-heading"><div><div className="eyebrow">СТРУКТУРА ОРГАНИЗАЦИИ</div><h1>Сотрудники</h1><p>Справочник сотрудников и подразделений</p></div></div>
+        {error && <div className="alert">{error}</div>}
+        {currentUser.role === "admin" && <section className="panel">
+          <div className="panel-heading"><div><h2>Добавить подразделение</h2><p>Короткий код используется в учётных процессах</p></div></div>
+          <form className="department-form" onSubmit={createDepartment}>
+            <label>Название<input required maxLength={120} value={departmentForm.name} onChange={e => setDepartmentForm({ ...departmentForm, name: e.target.value })} /></label>
+            <label>Код<input required maxLength={40} value={departmentForm.code} onChange={e => setDepartmentForm({ ...departmentForm, code: e.target.value })} /></label>
+            <button className="primary" type="submit" disabled={departmentSaving}>{departmentSaving ? "Сохранение..." : "Добавить"}</button>
+          </form>
+        </section>}
+        <section className="panel">
+          <div className="panel-heading"><div><h2>{editingEmployeeId === null ? "Добавить сотрудника" : "Редактировать сотрудника"}</h2><p>Контактные и организационные данные</p></div>{editingEmployeeId !== null && <button className="subtle" onClick={() => { setEditingEmployeeId(null); setEmployeeForm(emptyEmployeeForm); }}>Отмена</button>}</div>
+          <form onSubmit={submitEmployee}>
+            <div className="form-grid user-form-grid">
+              <label>Табельный номер *<input required maxLength={40} value={employeeForm.employee_number} onChange={e => setEmployeeForm({ ...employeeForm, employee_number: e.target.value })} /></label>
+              <label>ФИО *<input required maxLength={160} value={employeeForm.full_name} onChange={e => setEmployeeForm({ ...employeeForm, full_name: e.target.value })} /></label>
+              <label>Подразделение<select value={employeeForm.department_id || 0} onChange={e => setEmployeeForm({ ...employeeForm, department_id: Number(e.target.value) || null })}><option value={0}>Не указано</option>{departments.map(department => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+              <label>Должность<input maxLength={120} value={employeeForm.job_title || ""} onChange={e => setEmployeeForm({ ...employeeForm, job_title: e.target.value })} /></label>
+              <label>Электронная почта<input type="email" value={employeeForm.email || ""} onChange={e => setEmployeeForm({ ...employeeForm, email: e.target.value })} /></label>
+              <label>Телефон<input maxLength={40} value={employeeForm.phone || ""} onChange={e => setEmployeeForm({ ...employeeForm, phone: e.target.value })} /></label>
+            </div>
+            <div className="form-actions"><span className="required-note">Данные доступны администраторам и операторам организации</span><button className="primary" type="submit" disabled={employeeSaving}>{employeeSaving ? "Сохранение..." : editingEmployeeId === null ? "Добавить сотрудника" : "Сохранить изменения"}</button></div>
+          </form>
+        </section>
+        <section className="panel inventory">
+          <div className="panel-heading"><div><h2>Справочник сотрудников</h2><p>{employees.length} записей · {departments.length} подразделений</p></div><button className="subtle" onClick={() => void openEmployees()}>Обновить</button></div>
+          {employees.length === 0 ? <div className="empty">Сотрудников пока нет.</div> : <div className="table-wrap"><table><thead><tr><th>СОТРУДНИК</th><th>ТАБЕЛЬНЫЙ №</th><th>ПОДРАЗДЕЛЕНИЕ</th><th>ДОЛЖНОСТЬ</th><th>КОНТАКТЫ</th><th>СТАТУС</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
+            {employees.map(employee => <tr key={employee.id}><td><strong>{employee.full_name}</strong></td><td className="mono">{employee.employee_number}</td><td>{departments.find(d => d.id === employee.department_id)?.name || "—"}</td><td>{employee.job_title || "—"}</td><td>{employee.email || employee.phone || "—"}</td><td><span className={`status ${employee.is_active ? "status-active" : "status-retired"}`}>{employee.is_active ? "Работает" : "Неактивен"}</span></td><td className="actions"><button onClick={() => beginEmployeeEdit(employee)}>Изменить</button><button className="danger" onClick={() => void toggleEmployee(employee)}>{employee.is_active ? "Отключить" : "Включить"}</button></td></tr>)}
           </tbody></table></div>}
         </section>
       </section>}
