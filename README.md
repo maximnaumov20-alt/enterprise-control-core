@@ -59,7 +59,7 @@ docker compose up --build
 
 The API requires a bearer token. Docker Compose applies migrations and creates the first organization administrator before starting the API. See [Access control and organization administration](docs/ACCESS_CONTROL.md), [Security policy](docs/SECURITY.md) and [Database migrations and backups](docs/DATABASE.md) for details.
 
-Open the web interface at http://localhost:5173. The API is available at http://localhost:8000 and its interactive documentation at http://localhost:8000/docs.
+Open the web interface at http://localhost:5173. The API is kept private inside the Compose network. Its interactive documentation is available through the frontend gateway at http://localhost:5173/docs.
 
 Database schema changes are managed with Alembic. See [Database migrations and backups](docs/DATABASE.md) for migration, backup and restore instructions.
 
