@@ -93,6 +93,11 @@ export const api = {
       body: new URLSearchParams({ username: email, password })
     }),
   me: () => request<CurrentUser>("/api/v1/auth/me"),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ status: string }>("/api/v1/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password, new_password })
+    }),
   users: () => request<ManagedUser[]>("/api/v1/users"),
   createUser: (user: { email: string; full_name: string; password: string; role: UserRole }) =>
     request<ManagedUser>("/api/v1/users", { method: "POST", body: JSON.stringify(user) }),
