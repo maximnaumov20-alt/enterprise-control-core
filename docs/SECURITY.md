@@ -12,7 +12,7 @@ ECC is an early-development project. Authentication, role checks, organization-s
 - The production frontend is served by Nginx with a same-origin API reverse proxy and baseline content-type, frame, referrer and content-security-policy headers.
 - Roles are `admin`, `editor` and `viewer`. The API enforces permissions server-side.
 - Asset, software licence and maintenance request access is scoped to the authenticated user's organization. Maintenance records use composite foreign keys to prevent cross-organization asset and user references. Viewers can access only the maintenance requests they created. Organization IDs are never accepted from client request bodies.
-- Software licence records store external contract references, not activation keys or other secrets.
+- Software licence records store external contract references, not activation keys or other secrets. Employee directory access is restricted to administrators and editors.
 - Asset inventory identifiers are unique within an organization rather than globally.
 - Basic audit events are recorded for asset and user changes and are visible only to organization administrators.
 - Users can change their password after authenticating; new passwords must be at least 12 characters.
