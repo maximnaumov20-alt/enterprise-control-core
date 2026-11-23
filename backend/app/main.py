@@ -1024,6 +1024,17 @@ async def import_assets(
     if len(rows) > MAX_ASSET_IMPORT_ROWS:
         raise HTTPException(status_code=413, detail="CSV exceeds the 5,000 row limit")
 
+    # SQLite's legacy transaction mode may defer the actual database
+    # transaction until the first write. A SAVEPOINT created before that
+    # would become the outermost transaction and releasing it could commit
+    # each imported row before the batch audit is written. Start the SQLite
+    # transaction explicitly so row savepoints remain inside the batch.
+    connection = session.connection()
+    if session.get_bind().dialect.name == "sqlite":
+        driver_connection = connection.connection.driver_connection
+        if not driver_connection.in_transaction:
+            connection.exec_driver_sql("BEGIN")
+
     created = 0
     skipped = 0
     errors = []
@@ -1062,11 +1073,18 @@ async def import_assets(
             skipped += 1
             errors.append({"row": line_number, "error": "Duplicate asset tag or serial number"})
 
-    record_audit(
-        session, user, "asset.imported", "asset_import", "batch",
-        {"created": created, "skipped": skipped, "error_count": len(errors)},
-    )
-    session.commit()
+    try:
+        record_audit(
+            session, user, "asset.imported", "asset_import", "batch",
+            {"created": created, "skipped": skipped, "error_count": len(errors)},
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Asset import conflicts with current organization records",
+        )
     return {"created": created, "skipped": skipped, "errors": errors}
 
 
