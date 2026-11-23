@@ -1451,6 +1451,51 @@ def test_noop_department_update_does_not_create_audit_event(client: TestClient) 
     assert [event["id"] for event in after.json()] == before_ids
 
 
+
+def test_employee_update_integrity_error_rolls_back_without_audit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "EMP-UPDATE-ROLLBACK-001",
+            "full_name": "Original Employee",
+            "email": "employee.update.rollback@example.com",
+        },
+    )
+    assert created.status_code == 201
+    employee_id = created.json()["id"]
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_employee_update_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "employee.updated":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_employee_update_audit)
+    response = client.patch(
+        f"/api/v1/employees/{employee_id}",
+        json={"full_name": "Partially Updated Employee"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Employee update conflicts with current organization records"
+    )
+    stored = next(
+        employee for employee in client.get("/api/v1/employees").json()
+        if employee["id"] == employee_id
+    )
+    assert stored["full_name"] == "Original Employee"
+    audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert audit_ids == existing_audit_ids
+
+
 def test_noop_employee_update_does_not_create_audit_event(client: TestClient) -> None:
     created = client.post(
         "/api/v1/employees",
