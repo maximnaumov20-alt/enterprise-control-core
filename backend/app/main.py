@@ -974,6 +974,7 @@ def bulk_update_assets(
         session.rollback()
         raise HTTPException(status_code=409, detail="Bulk update conflicts with existing data")
 
+    session.expire_all()
     refreshed = list(session.scalars(
         select(Asset).where(
             Asset.organization_id == user.organization_id,
@@ -1186,6 +1187,7 @@ def update_asset(
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Asset update conflicts with existing organization records")
+    session.expire_all()
     return session.scalar(select(Asset).where(
         Asset.id == asset_id, Asset.organization_id == user.organization_id
     ))
