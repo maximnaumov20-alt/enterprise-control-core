@@ -9,7 +9,10 @@ ECC is not production-ready. This document records the minimum deployment bounda
 - Configure the proxy to forward requests to the loopback frontend port. Do not expose the API (8000), PostgreSQL (5432), or Redis (6379) to the public network.
 - If the reverse proxy is on another host, use a private network or VPN and firewall the frontend listener to that proxy's source addresses. Only then set `ECC_FRONTEND_BIND_ADDRESS` to an appropriate private interface address. Do not bind to all interfaces without matching firewall rules.
 - Set `CORS_ORIGINS` to the exact HTTPS origin(s) used by the browser. Do not use wildcard origins with authenticated requests.
-- The API trusts `X-Real-IP` only from the supplied Nginx gateway, which overwrites the header. Preserve that trust boundary; do not publish the API port or place an untrusted proxy in front of it.
+- The bundled Nginx overwrites `X-Real-IP` with the TCP peer address it sees. The API trusts this header only because the API is private to the Compose network and the bundled gateway sets it.
+- The bundled Nginx does **not** currently resolve client addresses from `X-Forwarded-For` or configure trusted upstream proxy CIDRs. If another reverse proxy or load balancer sits in front of it, the application may see that proxy's address for every request. This can make the API's per-IP login throttling apply to all users as one client.
+- For a deployment with an upstream proxy, enforce login rate limiting at that trusted edge as well. Do not blindly copy a client-supplied `X-Real-IP` or `X-Forwarded-For` value into the trusted header. A future ECC trusted-proxy configuration must use explicit proxy CIDRs and be tested against spoofed forwarding headers before relying on it.
+- Never publish the API port or allow untrusted hosts to reach the API container directly.
 
 ## Secrets and identity
 
