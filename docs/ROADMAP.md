@@ -24,7 +24,8 @@
 ## Phase 2 - operational readiness
 - [ ] Backup and restore procedures
 - [ ] Structured logs and monitoring
-- [x] Baseline frontend security headers\n- [ ] API security headers and authentication rate limiting
+- [x] Baseline frontend security headers
+- [ ] API security headers and authentication rate limiting
 - [ ] Dependency and container scanning
 - [ ] Automated integration tests
 - [ ] Installation and upgrade documentation
