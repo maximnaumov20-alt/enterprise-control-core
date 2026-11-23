@@ -2,6 +2,8 @@ export type AssetStatus = "active" | "in_repair" | "retired";
 export type UserRole = "admin" | "editor" | "viewer";
 export type SoftwareLicenseType = "subscription" | "perpetual" | "oem" | "site";
 export type SoftwareLicenseStatus = "active" | "suspended" | "retired";
+export type MaintenancePriority = "low" | "normal" | "high" | "urgent";
+export type MaintenanceStatus = "open" | "in_progress" | "resolved" | "cancelled";
 
 export interface CurrentUser {
   id: number;
@@ -29,6 +31,27 @@ export interface Asset {
 }
 
 export type AssetInput = Omit<Asset, "id" | "created_at" | "updated_at">;
+
+export interface MaintenanceRequest {
+  id: number;
+  asset_id: number;
+  requested_by_user_id: number;
+  assigned_to_user_id: number | null;
+  title: string;
+  description: string;
+  priority: MaintenancePriority;
+  status: MaintenanceStatus;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export interface MaintenanceRequestInput {
+  asset_id: number;
+  title: string;
+  description: string;
+  priority: MaintenancePriority;
+}
 
 export interface SoftwareLicense {
   id: number;
@@ -125,6 +148,11 @@ export const api = {
   updateUser: (id: number, changes: { full_name?: string; role?: UserRole; is_active?: boolean }) =>
     request<ManagedUser>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
   auditEvents: (limit = 100) => request<AuditEvent[]>(`/api/v1/audit-events?limit=${limit}`),
+  maintenanceRequests: () => request<MaintenanceRequest[]>("/api/v1/maintenance-requests?limit=200"),
+  createMaintenanceRequest: (item: MaintenanceRequestInput) =>
+    request<MaintenanceRequest>("/api/v1/maintenance-requests", { method: "POST", body: JSON.stringify(item) }),
+  updateMaintenanceRequest: (id: number, changes: { status?: MaintenanceStatus; assigned_to_user_id?: number | null }) =>
+    request<MaintenanceRequest>(`/api/v1/maintenance-requests/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
   softwareLicenses: () => request<SoftwareLicense[]>("/api/v1/software-licenses?limit=200"),
   createSoftwareLicense: (license: SoftwareLicenseInput) =>
     request<SoftwareLicense>("/api/v1/software-licenses", { method: "POST", body: JSON.stringify(license) }),
