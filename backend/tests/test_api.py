@@ -2182,3 +2182,57 @@ def test_bulk_asset_update_audit_integrity_error_rolls_back_all_assets(
         event["id"] for event in client.get("/api/v1/audit-events").json()
     }
     assert audit_ids == existing_audit_ids
+
+
+def test_asset_update_rejects_stale_version_without_audit(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={"name": "Versioned laptop", "asset_tag": "VERSION-001", "category": "Laptop"},
+    ).json()
+    asset_id = created["id"]
+    version = created["version"]
+
+    first = client.patch(
+        f"/api/v1/assets/{asset_id}",
+        json={"expected_version": version, "name": "Updated laptop"},
+    )
+    assert first.status_code == 200
+    assert first.json()["version"] == version + 1
+
+    audit_before = client.get("/api/v1/audit-events").json()
+    stale = client.patch(
+        f"/api/v1/assets/{asset_id}",
+        json={"expected_version": version, "name": "Stale overwrite"},
+    )
+    assert stale.status_code == 409
+    current = client.get(f"/api/v1/assets/{asset_id}").json()
+    assert current["name"] == "Updated laptop"
+    assert current["version"] == version + 1
+    assert client.get("/api/v1/audit-events").json() == audit_before
+
+
+def test_bulk_asset_update_rejects_stale_version_atomically(client: TestClient) -> None:
+    created_assets = []
+    for index in range(2):
+        created_assets.append(client.post(
+            "/api/v1/assets",
+            json={"name": f"Versioned bulk {index}", "asset_tag": f"VERSION-BULK-{index}", "category": "Laptop"},
+        ).json())
+
+    ids = [asset["id"] for asset in created_assets]
+    versions = {str(asset["id"]): asset["version"] for asset in created_assets}
+    changed = client.patch(
+        f"/api/v1/assets/{ids[0]}",
+        json={"expected_version": created_assets[0]["version"], "status": "in_repair"},
+    )
+    assert changed.status_code == 200
+
+    audit_before = client.get("/api/v1/audit-events").json()
+    response = client.patch(
+        "/api/v1/assets/bulk",
+        json={"asset_ids": ids, "versions": versions, "status": "retired"},
+    )
+    assert response.status_code == 409
+    assert client.get(f"/api/v1/assets/{ids[0]}").json()["status"] == "in_repair"
+    assert client.get(f"/api/v1/assets/{ids[1]}").json()["status"] == "active"
+    assert client.get("/api/v1/audit-events").json() == audit_before
