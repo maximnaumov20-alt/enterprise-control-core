@@ -15,11 +15,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Keep the server default: it safely backfills existing rows and supports
+    # inserts performed outside the ORM on both SQLite and PostgreSQL.
     op.add_column(
         "users",
         sa.Column("token_version", sa.Integer(), nullable=False, server_default="1"),
     )
-    op.alter_column("users", "token_version", server_default=None)
 
 
 def downgrade() -> None:
