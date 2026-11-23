@@ -1204,18 +1204,18 @@ def delete_asset(
             status_code=409,
             detail="Asset is referenced by maintenance requests and cannot be deleted",
         )
-    record_audit(session, user, "asset.deleted", "asset", asset.id, {
-        "asset_tag": asset.asset_tag, "name": asset.name, "category": asset.category,
-        "status": asset.status.value,
-    })
-    session.delete(asset)
     try:
+        record_audit(session, user, "asset.deleted", "asset", asset.id, {
+            "asset_tag": asset.asset_tag, "name": asset.name, "category": asset.category,
+            "status": asset.status.value,
+        })
+        session.delete(asset)
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(
             status_code=409,
-            detail="Asset is referenced by maintenance requests and cannot be deleted",
+            detail="Asset deletion conflicts with current organization records",
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
