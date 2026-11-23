@@ -48,29 +48,47 @@ The repository provides a backup script for the PostgreSQL Compose service. Run 
 bash scripts/backup-postgres.sh
 ```
 
-The script:
-- checks that PostgreSQL is accepting connections;
-- creates a PostgreSQL custom-format dump;
-- verifies the archive with `pg_restore --list` before publishing it;
-- writes files with owner-only permissions where supported;
-- retains the most recent 14 days by default.
+The script checks PostgreSQL readiness, creates a custom-format dump, validates it with `pg_restore --list`, applies owner-only file permissions where supported and retains 14 days by default.
+
+### Encrypt backups with age
+
+Install the `age` utility on the host and generate a recipient/identity pair using an approved secure process. Keep the private identity outside the server and backup destination, ideally in an organization-managed secrets vault. Only the public recipient belongs in the backup job configuration.
+
+```bash
+age-keygen -o /secure/location/ecc-backup-identity.txt
+age-keygen -y /secure/location/ecc-backup-identity.txt
+ECC_BACKUP_AGE_RECIPIENT=age1... bash scripts/backup-postgres.sh
+```
+
+The first command creates a private identity; the second prints its public recipient. Replace `age1...` with that output. Do not commit or share the private identity. The script writes a `.dump.age` archive when encryption is enabled. Without `ECC_BACKUP_AGE_RECIPIENT`, it creates an unencrypted `.dump` and prints a warning.
 
 Optional settings:
 
 ```bash
-ECC_BACKUP_DIR=./backups/postgres ECC_BACKUP_RETENTION_DAYS=30 bash scripts/backup-postgres.sh
+ECC_BACKUP_DIR=./backups/postgres ECC_BACKUP_RETENTION_DAYS=30 \
+  ECC_BACKUP_AGE_RECIPIENT=age1... bash scripts/backup-postgres.sh
 ```
 
-Backups are stored locally and are **not encrypted or copied off-host by this script**. Treat them as sensitive database exports. Restrict host access, encrypt them using an approved storage or backup system, and maintain a separate off-host copy. Do not commit backup files to Git.
+Encryption protects archive contents at rest but does not create an off-host copy, protect a compromised host during backup, or guarantee key recovery. Store encrypted archives in a separate failure domain with access controls and retention protections. Test private-key recovery independently.
 
 ## Restore
 
-Restore replaces database objects in the configured `ecc` database. Stop application writes first and confirm that the Compose project points to the intended environment. Keep a separate backup of the current database before proceeding.
+Restore replaces database objects in the configured `ecc` database. Stop application writes first, confirm the Compose project points to the intended environment and preserve a separate backup of the current database.
+
+For an unencrypted archive:
 
 ```bash
 ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh ./backups/postgres/ecc-postgres-YYYYMMDDTHHMMSSZ.dump
 ```
 
-The script refuses to run without the explicit confirmation variable, checks the target database name and validates the archive before restoring. PostgreSQL executes the restore in one transaction; a failed restore is rolled back where PostgreSQL supports transactional execution. Afterward, verify application health, migration state and representative records before allowing users back in.
+For an encrypted archive:
 
-These scripts are an operational starting point, not a certified disaster-recovery system. They do not provide encryption, off-site replication, point-in-time recovery, automated scheduling, cloud retention locking or a tested recovery-time/recovery-point guarantee. Test recovery regularly in an isolated environment before production use.
+```bash
+ECC_BACKUP_AGE_IDENTITY=/secure/location/ecc-backup-identity.txt \
+  ECC_RESTORE_CONFIRM=YES \
+  bash scripts/restore-postgres.sh ./backups/postgres/ecc-postgres-YYYYMMDDTHHMMSSZ.dump.age
+```
+
+The script requires explicit confirmation, checks the target database name and validates the plaintext PostgreSQL archive before restoring. Decrypted temporary files are created with restrictive permissions and removed on exit. PostgreSQL executes the restore in one transaction; a failed restore is rolled back where PostgreSQL supports transactional execution. Verify application health, migration state and representative records before allowing users back in.
+
+These scripts are an operational starting point, not a certified disaster-recovery system. Off-host replication, point-in-time recovery, automated scheduling, immutable retention, independent key escrow and measured RTO/RPO objectives remain separate operational responsibilities. Test recovery regularly in an isolated environment before production use.
