@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
+import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
 
 const emptyForm: AssetInput = {
   name: "", asset_tag: "", category: "Компьютер", manufacturer: "",
@@ -24,6 +24,18 @@ const licenseStatusLabels: Record<SoftwareLicenseStatus, string> = {
   active: "Активна", suspended: "Приостановлена", retired: "Закрыта"
 };
 
+const emptyMaintenanceForm: MaintenanceRequestInput = {
+  asset_id: 0, title: "", description: "", priority: "normal"
+};
+
+const maintenanceStatusLabels: Record<MaintenanceStatus, string> = {
+  open: "Открыта", in_progress: "В работе", resolved: "Решена", cancelled: "Отменена"
+};
+
+const maintenancePriorityLabels: Record<MaintenancePriority, string> = {
+  low: "Низкий", normal: "Обычный", high: "Высокий", urgent: "Срочный"
+};
+
 export default function App() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [form, setForm] = useState<AssetInput>(emptyForm);
@@ -39,7 +51,10 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [section, setSection] = useState<"assets" | "software" | "users" | "audit">("assets");
+  const [section, setSection] = useState<"assets" | "software" | "maintenance" | "users" | "audit">("assets");
+  const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
+  const [maintenanceForm, setMaintenanceForm] = useState<MaintenanceRequestInput>(emptyMaintenanceForm);
+  const [maintenanceSaving, setMaintenanceSaving] = useState(false);
   const [softwareLicenses, setSoftwareLicenses] = useState<SoftwareLicense[]>([]);
   const [softwareForm, setSoftwareForm] = useState<SoftwareLicenseInput>(emptySoftwareForm);
   const [editingSoftwareId, setEditingSoftwareId] = useState<number | null>(null);
@@ -115,6 +130,40 @@ export default function App() {
       setNotice("");
       setError(e instanceof Error ? e.message : "Не удалось изменить пароль");
     } finally { setPasswordSaving(false); }
+  }
+
+  async function openMaintenance() {
+    setSection("maintenance");
+    setError("");
+    try {
+      const [requests, assetItems] = await Promise.all([api.maintenanceRequests(), api.assets("")]);
+      setMaintenanceRequests(requests);
+      setAssets(assetItems);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить заявки"); }
+  }
+
+  async function submitMaintenance(event: FormEvent) {
+    event.preventDefault();
+    setMaintenanceSaving(true);
+    setError("");
+    try {
+      await api.createMaintenanceRequest({
+        ...maintenanceForm,
+        title: maintenanceForm.title.trim(),
+        description: maintenanceForm.description.trim()
+      });
+      setMaintenanceForm(emptyMaintenanceForm);
+      setMaintenanceRequests(await api.maintenanceRequests());
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать заявку"); }
+    finally { setMaintenanceSaving(false); }
+  }
+
+  async function changeMaintenanceStatus(item: MaintenanceRequest, nextStatus: MaintenanceStatus) {
+    setError("");
+    try {
+      await api.updateMaintenanceRequest(item.id, { status: nextStatus });
+      setMaintenanceRequests(await api.maintenanceRequests());
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось обновить заявку"); }
   }
 
   async function openSoftware() {
@@ -274,11 +323,12 @@ export default function App() {
       <div className="nav-caption">РАБОЧЕЕ ПРОСТРАНСТВО</div>
       <button type="button" className={`nav-item ${section === "assets" ? "active" : ""}`} onClick={() => setSection("assets")}><span>▦</span> Оборудование</button>
       <button type="button" className={`nav-item ${section === "software" ? "active" : ""}`} onClick={() => void openSoftware()}><span>▤</span> Лицензии ПО</button>
+      <button type="button" className={`nav-item ${section === "maintenance" ? "active" : ""}`} onClick={() => void openMaintenance()}><span>⚙</span> Обслуживание</button>
       {currentUser.role === "admin" && <>
         <button type="button" className={`nav-item ${section === "users" ? "active" : ""}`} onClick={() => void openUsers()}><span>♙</span> Пользователи</button>
         <button type="button" className={`nav-item ${section === "audit" ? "active" : ""}`} onClick={() => void openAudit()}><span>≡</span> Журнал действий</button>
       </>}
-      <div className="nav-item disabled"><span>⚙</span> Обслуживание <small>скоро</small></div>
+       
       <div className="sidebar-bottom"><span className={apiOnline ? "dot online" : "dot"} /> API {apiOnline ? "подключён" : "не подключён"}<small>Версия 0.2.0 · ранняя сборка</small></div>
     </aside>
 
@@ -290,7 +340,7 @@ export default function App() {
         <button className="primary" type="submit" disabled={passwordSaving}>{passwordSaving ? "Сохранение..." : "Изменить пароль"}</button>
       </form></div>}
       {notice && <div className="notice">{notice}</div>}
-      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "software" ? "Лицензии ПО" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "software" ? "Лицензии ПО" : section === "maintenance" ? "Обслуживание" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
       {section === "assets" && <>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
 
@@ -354,6 +404,29 @@ export default function App() {
           <div className="panel-heading"><div><h2>Реестр лицензий</h2><p>{softwareLicenses.length} записей</p></div><button className="subtle" onClick={() => void openSoftware()}>Обновить</button></div>
           {softwareLicenses.length === 0 ? <div className="empty">Записей пока нет.</div> : <div className="table-wrap"><table><thead><tr><th>ПРОГРАММА</th><th>ТИП</th><th>ДОГОВОР</th><th>МЕСТА</th><th>ОКОНЧАНИЕ</th><th>СТАТУС</th>{currentUser.role !== "viewer" && <th>ДЕЙСТВИЯ</th>}</tr></thead><tbody>
             {softwareLicenses.map(item => <tr key={item.id}><td><strong>{item.name}</strong><small>{[item.publisher, item.version].filter(Boolean).join(" · ")}</small></td><td>{licenseTypeLabels[item.license_type]}</td><td className="mono">{item.license_reference || "—"}</td><td>{item.seats_used} / {item.seats_total}</td><td>{item.expires_at || "Без срока"}</td><td><span className={`status ${item.status === "active" ? "status-active" : item.status === "suspended" ? "status-in_repair" : "status-retired"}`}>{licenseStatusLabels[item.status]}</span></td>{currentUser.role !== "viewer" && <td className="actions"><button onClick={() => beginSoftwareEdit(item)}>Изменить</button><button className="danger" onClick={() => void removeSoftware(item)}>Удалить</button></td>}</tr>)}
+          </tbody></table></div>}
+        </section>
+      </section>}
+
+      {section === "maintenance" && <section className="admin-section">
+        <div className="page-heading"><div><div className="eyebrow">ЗАЯВКИ НА РЕМОНТ И ОБСЛУЖИВАНИЕ</div><h1>Обслуживание</h1><p>Регистрация неисправностей и контроль выполнения работ</p></div></div>
+        {error && <div className="alert">{error}</div>}
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Создать заявку</h2><p>Выберите оборудование и опишите проблему</p></div></div>
+          {assets.length === 0 ? <div className="empty">Сначала добавьте оборудование в реестр.</div> : <form onSubmit={submitMaintenance}>
+            <div className="form-grid user-form-grid">
+              <label>Оборудование *<select required value={maintenanceForm.asset_id} onChange={e => setMaintenanceForm({ ...maintenanceForm, asset_id: Number(e.target.value) })}><option value={0} disabled>Выберите актив</option>{assets.map(asset => <option key={asset.id} value={asset.id}>{asset.asset_tag} · {asset.name}</option>)}</select></label>
+              <label>Тема заявки *<input required maxLength={160} value={maintenanceForm.title} onChange={e => setMaintenanceForm({ ...maintenanceForm, title: e.target.value })} /></label>
+              <label>Приоритет<select value={maintenanceForm.priority} onChange={e => setMaintenanceForm({ ...maintenanceForm, priority: e.target.value as MaintenancePriority })}><option value="low">Низкий</option><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option></select></label>
+              <label className="wide-field">Описание проблемы<textarea required maxLength={4000} rows={3} value={maintenanceForm.description} onChange={e => setMaintenanceForm({ ...maintenanceForm, description: e.target.value })} /></label>
+            </div>
+            <div className="form-actions"><span className="required-note">Заявка будет видна вашей организации согласно вашей роли</span><button className="primary" type="submit" disabled={maintenanceSaving}>{maintenanceSaving ? "Отправка..." : "Отправить заявку"}</button></div>
+          </form>}
+        </section>
+        <section className="panel inventory">
+          <div className="panel-heading"><div><h2>Заявки</h2><p>{maintenanceRequests.length} записей</p></div><button className="subtle" onClick={() => void openMaintenance()}>Обновить</button></div>
+          {maintenanceRequests.length === 0 ? <div className="empty">Заявок пока нет.</div> : <div className="table-wrap"><table><thead><tr><th>ЗАЯВКА</th><th>АКТИВ ID</th><th>ИНИЦИАТОР</th><th>ПРИОРИТЕТ</th><th>СТАТУС</th><th>ДАТА</th></tr></thead><tbody>
+            {maintenanceRequests.map(item => <tr key={item.id}><td><strong>{item.title}</strong><small>{item.description}</small></td><td>{item.asset_id}</td><td>{item.requested_by_user_id}</td><td>{maintenancePriorityLabels[item.priority]}</td><td>{currentUser.role === "viewer" ? <span className="status status-in_repair">{maintenanceStatusLabels[item.status]}</span> : <select value={item.status} onChange={e => void changeMaintenanceStatus(item, e.target.value as MaintenanceStatus)}><option value="open">Открыта</option><option value="in_progress">В работе</option><option value="resolved">Решена</option><option value="cancelled">Отменена</option></select>}</td><td>{new Date(item.created_at).toLocaleDateString()}</td></tr>)}
           </tbody></table></div>}
         </section>
       </section>}
