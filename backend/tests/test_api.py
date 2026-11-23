@@ -220,6 +220,96 @@ def test_asset_history_is_tenant_scoped_and_readable_by_viewer(client: TestClien
     assert client.get(f"/api/v1/assets/{asset_id}/history").status_code == 404
 
 
+def test_bulk_asset_update_changes_assets_and_records_each_history(client: TestClient) -> None:
+    ids = []
+    for index in range(2):
+        created = client.post(
+            "/api/v1/assets",
+            json={"name": f"Bulk laptop {index}", "asset_tag": f"BULK-{index}", "category": "Laptop"},
+        )
+        assert created.status_code == 201
+        ids.append(created.json()["id"])
+
+    response = client.patch(
+        "/api/v1/assets/bulk",
+        json={"asset_ids": ids, "status": "in_repair", "assigned_to": "Alex Smith"},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert result["selected"] == 2
+    assert result["updated"] == 2
+    assert all(item["status"] == "in_repair" for item in result["assets"])
+    assert all(item["assigned_to"] == "Alex Smith" for item in result["assets"])
+
+    for asset_id in ids:
+        history = client.get(f"/api/v1/assets/{asset_id}/history")
+        assert history.status_code == 200
+        event = history.json()[0]
+        assert event["action"] == "asset.updated"
+        assert event["details"]["source"] == "bulk"
+        assert event["details"]["changes"]["status"] == {"old": "active", "new": "in_repair"}
+        assert event["details"]["changes"]["assigned_to"] == {"old": None, "new": "Alex Smith"}
+
+
+def test_bulk_asset_update_unchanged_values_are_noop(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={"name": "No-op laptop", "asset_tag": "BULK-NOOP", "category": "Laptop"},
+    )
+    asset_id = created.json()["id"]
+    response = client.patch(
+        "/api/v1/assets/bulk",
+        json={"asset_ids": [asset_id], "status": "active", "assigned_to": None},
+    )
+    assert response.status_code == 200
+    assert response.json()["updated"] == 0
+    history = client.get(f"/api/v1/assets/{asset_id}/history")
+    assert history.json() == []
+
+
+def test_bulk_asset_update_validates_ids_and_fields(client: TestClient) -> None:
+    for payload in (
+        {"asset_ids": [] , "status": "active"},
+        {"asset_ids": [1, 1], "status": "active"},
+        {"asset_ids": [1], "status": "active", "assigned_to": "A"},
+        {"asset_ids": [1]},
+        {"asset_ids": list(range(1, 102)), "status": "active"},
+    ):
+        assert client.patch("/api/v1/assets/bulk", json=payload).status_code == 422
+
+
+def test_bulk_asset_update_requires_editor_or_admin(client: TestClient) -> None:
+    use_role(client, "viewer")
+    response = client.patch(
+        "/api/v1/assets/bulk",
+        json={"asset_ids": [1], "status": "retired"},
+    )
+    assert response.status_code == 403
+
+
+def test_bulk_asset_update_rejects_foreign_tenant_without_partial_changes(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/assets",
+        json={"name": "Tenant A laptop", "asset_tag": "TENANT-A-1", "category": "Laptop"},
+    ).json()
+    use_role(client, "other_admin")
+    foreign = client.post(
+        "/api/v1/assets",
+        json={"name": "Tenant B laptop", "asset_tag": "TENANT-B-1", "category": "Laptop"},
+    ).json()
+    use_role(client, "admin")
+
+    response = client.patch(
+        "/api/v1/assets/bulk",
+        json={"asset_ids": [first["id"], foreign["id"]], "status": "retired"},
+    )
+    assert response.status_code == 404
+    unchanged = client.get(f"/api/v1/assets/{first['id']}")
+    assert unchanged.status_code == 200
+    assert unchanged.json()["status"] == "active"
+    assert client.get(f"/api/v1/assets/{first['id']}/history").json() == []
+
+
 def test_asset_csv_import_export_and_formula_safety(client: TestClient) -> None:
     csv_data = (
         "name,asset_tag,category,manufacturer,model,serial_number,assigned_to,status\n"
