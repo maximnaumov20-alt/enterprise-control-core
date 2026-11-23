@@ -6,11 +6,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import Base, app, get_session
+from app import main
+from app.main import (
+    Base, Organization, User, UserRole, app, create_access_token, get_session,
+    password_hash,
+)
 
 
 @pytest.fixture()
-def client() -> Generator[TestClient, None, None]:
+def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+    monkeypatch.setattr(main, "SECRET_KEY", "test-only-secret-key")
     test_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -21,18 +26,56 @@ def client() -> Generator[TestClient, None, None]:
     )
     Base.metadata.create_all(bind=test_engine)
 
+    with TestingSessionLocal() as session:
+        org_a = Organization(name="Company A")
+        org_b = Organization(name="Company B")
+        session.add_all([org_a, org_b])
+        session.flush()
+        users = {
+            "admin": User(
+                organization_id=org_a.id, email="admin@a.test", full_name="Admin",
+                password_hash=password_hash.hash("test-password-admin-123"),
+                role=UserRole.admin,
+            ),
+            "editor": User(
+                organization_id=org_a.id, email="editor@a.test", full_name="Editor",
+                password_hash=password_hash.hash("test-password-editor-123"),
+                role=UserRole.editor,
+            ),
+            "viewer": User(
+                organization_id=org_a.id, email="viewer@a.test", full_name="Viewer",
+                password_hash=password_hash.hash("test-password-viewer-123"),
+                role=UserRole.viewer,
+            ),
+            "other_admin": User(
+                organization_id=org_b.id, email="admin@b.test", full_name="Other Admin",
+                password_hash=password_hash.hash("test-password-other-123"),
+                role=UserRole.admin,
+            ),
+        }
+        session.add_all(users.values())
+        session.commit()
+        tokens = {name: create_access_token(user) for name, user in users.items()}
+
     def override_get_session():
         with TestingSessionLocal() as session:
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
+    app.state.test_tokens = tokens
     try:
         with TestClient(app) as test_client:
+            test_client.headers.update({"Authorization": f"Bearer {tokens['admin']}"})
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        app.state.test_tokens = {}
         Base.metadata.drop_all(bind=test_engine)
         test_engine.dispose()
+
+
+def use_role(client: TestClient, role: str) -> None:
+    client.headers.update({"Authorization": f"Bearer {client.app.state.test_tokens[role]}"})
 
 
 def test_health_endpoint(client: TestClient) -> None:
@@ -41,7 +84,12 @@ def test_health_endpoint(client: TestClient) -> None:
     assert response.json()["status"] == "ok"
 
 
-def test_asset_create_list_update_delete(client: TestClient) -> None:
+def test_authentication_required_for_assets(client: TestClient) -> None:
+    client.headers.pop("Authorization")
+    assert client.get("/api/v1/assets").status_code == 401
+
+
+def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
     created = client.post(
         "/api/v1/assets",
         json={
@@ -65,20 +113,19 @@ def test_asset_create_list_update_delete(client: TestClient) -> None:
     assert updated.status_code == 200
     assert updated.json()["status"] == "in_repair"
 
+    events = client.get("/api/v1/audit-events")
+    assert events.status_code == 200
+    assert [event["action"] for event in events.json()] == ["asset.updated", "asset.created"]
+
     deleted = client.delete(f"/api/v1/assets/{asset_id}")
     assert deleted.status_code == 204
     assert client.get(f"/api/v1/assets/{asset_id}").status_code == 404
 
 
-def test_duplicate_asset_tag_is_rejected(client: TestClient) -> None:
-    payload = {
-        "name": "Office laptop",
-        "asset_tag": "ECC-LT-002",
-        "category": "Laptop",
-    }
+def test_duplicate_asset_tag_is_rejected_within_organization(client: TestClient) -> None:
+    payload = {"name": "Office laptop", "asset_tag": "ECC-LT-002", "category": "Laptop"}
     assert client.post("/api/v1/assets", json=payload).status_code == 201
-    duplicate = client.post("/api/v1/assets", json=payload)
-    assert duplicate.status_code == 409
+    assert client.post("/api/v1/assets", json=payload).status_code == 409
 
 
 def test_required_asset_fields_cannot_be_cleared(client: TestClient) -> None:
@@ -89,3 +136,43 @@ def test_required_asset_fields_cannot_be_cleared(client: TestClient) -> None:
     asset_id = created.json()["id"]
     response = client.patch(f"/api/v1/assets/{asset_id}", json={"name": None})
     assert response.status_code == 422
+
+
+def test_viewer_is_read_only(client: TestClient) -> None:
+    use_role(client, "viewer")
+    assert client.get("/api/v1/assets").status_code == 200
+    payload = {"name": "Read only", "asset_tag": "VIEW-001", "category": "Laptop"}
+    assert client.post("/api/v1/assets", json=payload).status_code == 403
+
+
+def test_tenant_isolation_and_tenant_scoped_asset_tags(client: TestClient) -> None:
+    payload = {"name": "Company A laptop", "asset_tag": "SHARED-001", "category": "Laptop"}
+    created_a = client.post("/api/v1/assets", json=payload)
+    assert created_a.status_code == 201
+    asset_a_id = created_a.json()["id"]
+
+    use_role(client, "other_admin")
+    assert client.get("/api/v1/assets").json() == []
+    assert client.get(f"/api/v1/assets/{asset_a_id}").status_code == 404
+
+    payload["name"] = "Company B laptop"
+    created_b = client.post("/api/v1/assets", json=payload)
+    assert created_b.status_code == 201
+    assert created_b.json()["asset_tag"] == "SHARED-001"
+
+
+def test_admin_can_create_users_and_viewer_cannot(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "email": "new.user@a.test",
+            "full_name": "New User",
+            "password": "long-enough-password",
+            "role": "viewer",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["organization_id"] == 1
+
+    use_role(client, "viewer")
+    assert client.get("/api/v1/users").status_code == 403
