@@ -1162,6 +1162,19 @@ def delete_asset(
     ))
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+    # Enforce the reference rule explicitly; SQLite test databases may not
+    # enable foreign-key enforcement, unlike the production PostgreSQL setup.
+    has_maintenance = session.scalar(
+        select(MaintenanceRequest.id).where(
+            MaintenanceRequest.organization_id == user.organization_id,
+            MaintenanceRequest.asset_id == asset.id,
+        ).limit(1)
+    )
+    if has_maintenance is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Asset is referenced by maintenance requests and cannot be deleted",
+        )
     record_audit(session, user, "asset.deleted", "asset", asset.id, {
         "asset_tag": asset.asset_tag, "name": asset.name, "category": asset.category,
         "status": asset.status.value,
