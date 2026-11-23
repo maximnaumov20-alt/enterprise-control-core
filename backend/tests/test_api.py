@@ -2128,3 +2128,57 @@ def test_asset_delete_audit_integrity_error_rolls_back_asset(
     assert {
         event["id"] for event in client.get("/api/v1/audit-events").json()
     } == existing_audit_ids
+
+
+def test_bulk_asset_update_audit_integrity_error_rolls_back_all_assets(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset_ids = []
+    for index in range(2):
+        created = client.post(
+            "/api/v1/assets",
+            json={
+                "name": f"Original bulk asset {index}",
+                "asset_tag": f"BULK-AUDIT-ROLLBACK-{index}",
+                "category": "Laptop",
+                "assigned_to": f"Original owner {index}",
+            },
+        )
+        assert created.status_code == 201
+        asset_ids.append(created.json()["id"])
+
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+    failed_actions = 0
+
+    def fail_second_bulk_audit(session, user, action, entity_type, entity_id, details=None):
+        nonlocal failed_actions
+        if action == "asset.updated" and details and details.get("source") == "bulk":
+            failed_actions += 1
+            if failed_actions == 2:
+                raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_second_bulk_audit)
+    response = client.patch(
+        "/api/v1/assets/bulk",
+        json={"asset_ids": asset_ids, "status": "in_repair", "assigned_to": "New owner"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Bulk update conflicts with existing data"
+    assert failed_actions == 2
+
+    stored_assets = client.get("/api/v1/assets").json()
+    for asset_id, index in zip(asset_ids, range(2)):
+        stored = next(asset for asset in stored_assets if asset["id"] == asset_id)
+        assert stored["name"] == f"Original bulk asset {index}"
+        assert stored["status"] == "active"
+        assert stored["assigned_to"] == f"Original owner {index}"
+
+    audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert audit_ids == existing_audit_ids
