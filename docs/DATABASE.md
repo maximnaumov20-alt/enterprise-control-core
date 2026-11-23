@@ -75,7 +75,7 @@ Encryption protects archive contents at rest but does not create an off-host cop
 
 The optional uploader sends an already-encrypted `.dump.age` archive to an S3 bucket and verifies the uploaded object's recorded SHA-256 metadata and size, then downloads the object and compares the actual bytes with the local archive. It refuses plaintext dumps.
 
-Install AWS CLI v2 and configure credentials through an instance/task role or the standard AWS credential chain. Do not put access keys in the repository, script arguments, or committed environment files. The identity used by the job should have only the required `s3:PutObject` and `s3:HeadObject` permissions for the backup prefix.
+Install AWS CLI v2 and configure credentials through an instance/task role or the standard AWS credential chain. Do not put access keys in the repository, script arguments, or committed environment files. The identity used by the job needs `s3:PutObject`, `s3:HeadObject` and `s3:GetObject` permissions scoped to the backup prefix: upload uses the first permission, metadata verification uses the second, and the mandatory read-back integrity check uses the third. If SSE-KMS is enabled, grant only the required KMS permissions for the selected key, including `kms:GenerateDataKey` for upload and `kms:Decrypt` for read-back/download, subject to the key policy and AWS configuration.
 
 Example:
 
