@@ -20,7 +20,7 @@ The initial development scope is:
 - **API:** REST, documented by OpenAPI at `/docs`
 - **Deployment:** Docker
 
-The first commit provides a small asset-inventory API foundation. The other modules will be added incrementally.
+The current development build includes an asset-inventory API and a React web interface for creating, searching, editing and deleting assets. Employee, software and maintenance modules will be added incrementally.
 
 ## Run locally
 
@@ -38,11 +38,13 @@ uvicorn app.main:app --reload
 
 The API will be available at http://127.0.0.1:8000 and interactive documentation at http://127.0.0.1:8000/docs.
 
-For PostgreSQL using Docker:
+For the full local development stack (PostgreSQL, API and web interface):
 
 ```bash
 docker compose up --build
 ```
+
+Open the web interface at http://localhost:5173. The API is available at http://localhost:8000 and its interactive documentation at http://localhost:8000/docs.
 
 ## Project structure
 
@@ -51,11 +53,19 @@ backend/
   app/
     main.py
   requirements.txt
+frontend/
+  src/
+    App.tsx
+    api.ts
+    style.css
+  Dockerfile
+  package.json
 docs/
   ROADMAP.md
   SECURITY.md
 docker-compose.yml
 Dockerfile
+
 ```
 
 ## Development principles
