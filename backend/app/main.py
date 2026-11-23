@@ -826,7 +826,13 @@ def update_user(
         changes.get("is_active") is False or changes.get("role") not in (None, UserRole.admin)
     ):
         raise HTTPException(status_code=422, detail="You cannot disable or demote your own admin account")
-    if "is_active" in changes and changes["is_active"] != target.is_active:
+    changes = {
+        field: value for field, value in changes.items()
+        if getattr(target, field) != value
+    }
+    if not changes:
+        return target
+    if "is_active" in changes:
         target.token_version += 1
     for field, value in changes.items():
         setattr(target, field, value)
