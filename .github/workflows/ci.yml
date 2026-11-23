@@ -114,6 +114,11 @@ jobs:
 
       - name: Run PostgreSQL Compose smoke test
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes age
+          age-keygen -o /tmp/ecc-ci-age-identity.txt
+          chmod 600 /tmp/ecc-ci-age-identity.txt
+          age_recipient=$(age-keygen -y /tmp/ecc-ci-age-identity.txt)
           cp .env.example .env
           sed -i \
             -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-postgres-secret-1234567890/" \
@@ -182,7 +187,7 @@ jobs:
             http://localhost:5173/api/v1/assets)
           backup_asset_id=$(printf '%s' "$backup_asset" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 
-          ECC_BACKUP_DIR=/tmp/ecc-ci-backups bash scripts/backup-postgres.sh
+          ECC_BACKUP_DIR=/tmp/ecc-ci-backups ECC_BACKUP_AGE_RECIPIENT="$age_recipient" bash scripts/backup-postgres.sh
           backup_file=$(find /tmp/ecc-ci-backups -maxdepth 1 -type f -name 'ecc-postgres-*.dump' -print -quit)
           test -n "$backup_file"
 
@@ -192,7 +197,7 @@ jobs:
             "SELECT name FROM assets WHERE id=$backup_asset_id")
           test "$changed_name" = "Changed after backup"
 
-          ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh "$backup_file"
+          ECC_BACKUP_AGE_IDENTITY=/tmp/ecc-ci-age-identity.txt ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh "$backup_file"
           restored_name=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \
             "SELECT name FROM assets WHERE id=$backup_asset_id")
           test "$restored_name" = "Backup baseline"
