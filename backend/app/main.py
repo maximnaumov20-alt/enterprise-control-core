@@ -838,7 +838,10 @@ def create_asset(payload: AssetCreate, session: SessionDep, user: Annotated[User
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Asset tag or serial number already exists")
-    record_audit(session, user, "asset.created", "asset", asset.id, {"asset_tag": asset.asset_tag})
+    record_audit(session, user, "asset.created", "asset", asset.id, {
+        "asset_tag": asset.asset_tag, "name": asset.name, "category": asset.category,
+        "status": asset.status.value,
+    })
     session.commit()
     session.refresh(asset)
     return asset
@@ -964,6 +967,10 @@ async def import_assets(
                 asset = Asset(organization_id=user.organization_id, **payload.model_dump())
                 session.add(asset)
                 session.flush()
+                record_audit(
+                    session, user, "asset.imported", "asset", asset.id,
+                    {"asset_tag": asset.asset_tag, "name": asset.name},
+                )
             created += 1
         except IntegrityError:
             skipped += 1
@@ -1073,7 +1080,10 @@ def delete_asset(
     ))
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    record_audit(session, user, "asset.deleted", "asset", asset.id, {"asset_tag": asset.asset_tag})
+    record_audit(session, user, "asset.deleted", "asset", asset.id, {
+        "asset_tag": asset.asset_tag, "name": asset.name, "category": asset.category,
+        "status": asset.status.value,
+    })
     session.delete(asset)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
