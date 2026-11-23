@@ -15,7 +15,7 @@
 - [x] Tenant isolation and role-based access control
 - [ ] Asset import/export
 - [x] Tenant-scoped software licence register
-- [ ] Maintenance requests
+- [x] Maintenance request workflow
 - [x] Basic audit events
 - [x] Asset inventory web interface with sign-in and role-aware controls
 - [x] Administrator UI for user accounts and audit history
