@@ -75,6 +75,8 @@ services:
 
   frontend:
     build: ./frontend
+    environment:
+      ECC_TRUSTED_PROXY_CIDRS: ${ECC_TRUSTED_PROXY_CIDRS:-}
     ports:
       # Loopback-only by default. Put a TLS-terminating reverse proxy in front.
       # Set ECC_FRONTEND_BIND_ADDRESS=0.0.0.0 only for a deliberately firewalled deployment.

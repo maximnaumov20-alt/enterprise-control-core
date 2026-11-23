@@ -11,4 +11,7 @@ FROM nginx:1.29-alpine
 RUN apk upgrade --no-cache
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker-entrypoint.d/30-configure-trusted-proxies.sh /docker-entrypoint.d/30-configure-trusted-proxies.sh
+RUN chmod 755 /docker-entrypoint.d/30-configure-trusted-proxies.sh \
+    && touch /etc/nginx/trusted-proxies.conf
 EXPOSE 80

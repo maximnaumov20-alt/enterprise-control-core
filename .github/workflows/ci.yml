@@ -121,6 +121,7 @@ jobs:
               published = services[name].get("ports", [])
               assert not published, f"{name} must not publish host ports: {published}"
           assert "8000" in services["api"].get("expose", []), "API must remain reachable on the private Compose network"
+          assert services["frontend"].get("environment", {}).get("ECC_TRUSTED_PROXY_CIDRS", "") == "", "Trusted proxies must be opt-in"
           '
 
           rm .env
@@ -130,6 +131,20 @@ jobs:
 
       - name: Build frontend image
         run: docker build --tag ecc-frontend:test ./frontend
+
+      - name: Verify trusted proxy allowlist and header handling
+        run: |
+          trusted_proxy_config=$(docker run --rm \
+            -e ECC_TRUSTED_PROXY_CIDRS="10.20.0.0/16,192.0.2.10" \
+            --entrypoint sh ecc-frontend:test -c '/docker-entrypoint.d/30-configure-trusted-proxies.sh && cat /etc/nginx/trusted-proxies.conf')
+          printf '%s\n' "$trusted_proxy_config" | grep -Fx "set_real_ip_from 10.20.0.0/16;"
+          printf '%s\n' "$trusted_proxy_config" | grep -Fx "set_real_ip_from 192.0.2.10;"
+          docker run --rm --entrypoint sh ecc-frontend:test -c \
+            'grep -Fq "proxy_set_header X-Real-IP \$remote_addr;" /etc/nginx/conf.d/default.conf'
+          if docker run --rm -e 'ECC_TRUSTED_PROXY_CIDRS=10.0.0.1;touch /tmp/pwned' --entrypoint sh ecc-frontend:test -c '/docker-entrypoint.sh nginx -t'; then
+            echo "Unsafe trusted-proxy value was accepted" >&2
+            exit 1
+          fi
 
       - name: Run PostgreSQL Compose smoke test
         run: |
@@ -236,6 +251,7 @@ jobs:
           bash -n scripts/restore-postgres.sh
           bash -n scripts/upload-backup-s3.sh
           bash -n scripts/run-backup.sh
+          sh -n frontend/docker-entrypoint.d/30-configure-trusted-proxies.sh
 
       - name: Install ShellCheck
         run: |
@@ -243,7 +259,7 @@ jobs:
           sudo apt-get install --yes shellcheck
 
       - name: Lint maintenance scripts
-        run: shellcheck --severity=warning scripts/backup-postgres.sh scripts/restore-postgres.sh scripts/upload-backup-s3.sh scripts/run-backup.sh
+        run: shellcheck --severity=warning scripts/backup-postgres.sh scripts/restore-postgres.sh scripts/upload-backup-s3.sh scripts/run-backup.sh frontend/docker-entrypoint.d/30-configure-trusted-proxies.sh
 
       - name: Test S3 uploader with a fake AWS CLI
         run: python scripts/tests/test_upload_backup_s3.py
