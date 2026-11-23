@@ -1022,3 +1022,16 @@ def test_password_change_allows_new_password_and_rejects_old_password(client: Te
     assert new_login.json()["token_type"] == "bearer"
     client.headers.update({"Authorization": f"Bearer {new_login.json()['access_token']}"})
     assert client.get("/api/v1/auth/me").status_code == 200
+
+    audit = client.get("/api/v1/audit-events")
+    assert audit.status_code == 200
+    password_events = [
+        event for event in audit.json()
+        if event["action"] == "user.password_changed"
+    ]
+    assert len(password_events) == 1
+    assert password_events[0]["entity_type"] == "user"
+    assert password_events[0]["details"] == {}
+    serialized_event = str(password_events[0])
+    assert "test-password-admin-123" not in serialized_event
+    assert "replacement-password-456" not in serialized_event
