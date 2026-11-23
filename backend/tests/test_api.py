@@ -16,6 +16,7 @@ from app.main import (
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     monkeypatch.setattr(main, "SECRET_KEY", "test-only-secret-key-that-is-longer-than-32-bytes")
+    monkeypatch.setattr(main, "login_rate_limiter", main.LoginRateLimiter(max_attempts=10, window_seconds=60))
     test_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -92,6 +93,39 @@ def test_password_login_returns_bearer_token(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["token_type"] == "bearer"
     assert response.json()["expires_in"] == 1200
+
+
+def test_login_rate_limit_returns_429_after_ten_attempts(client: TestClient) -> None:
+    for attempt in range(10):
+        response = client.post(
+            "/api/v1/auth/token",
+            data={"username": "missing@example.com", "password": "wrong-password"},
+        )
+        assert response.status_code == 401, f"unexpected status on attempt {attempt + 1}"
+
+    limited = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) > 0
+    assert "Too many login attempts" in limited.json()["detail"]
+
+
+def test_login_rate_limit_is_scoped_to_client_ip(client: TestClient) -> None:
+    for _ in range(10):
+        client.post(
+            "/api/v1/auth/token",
+            data={"username": "missing@example.com", "password": "wrong-password"},
+        )
+
+    other_ip = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+        headers={"X-Forwarded-For": "203.0.113.10"},
+    )
+    # Forwarded headers are intentionally not trusted by the application.
+    assert other_ip.status_code == 429
 
 
 def test_authentication_required_for_assets(client: TestClient) -> None:
