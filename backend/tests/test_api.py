@@ -471,6 +471,50 @@ def test_user_create_integrity_conflict_returns_409_without_audit(
     assert response.status_code == 409
     assert response.json()["detail"] == "Email is already registered"
 
+def test_user_create_audit_integrity_conflict_rolls_back_user(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_audit(*args, **kwargs):
+        raise IntegrityError("insert audit event", {}, Exception("audit constraint"))
+
+    monkeypatch.setattr(main, "record_audit", fail_audit)
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "email": "audit-conflict@example.com",
+            "full_name": "Audit Conflict",
+            "password": "long-enough-password",
+            "role": "viewer",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Email is already registered"
+    assert all(user["email"] != "audit-conflict@example.com" for user in client.get("/api/v1/users").json())
+
+
+def test_user_update_audit_integrity_conflict_rolls_back_changes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    users = client.get("/api/v1/users").json()
+    target = next(user for user in users if user["email"] == "editor.a@example.com")
+
+    def fail_audit(*args, **kwargs):
+        raise IntegrityError("insert audit event", {}, Exception("audit constraint"))
+
+    monkeypatch.setattr(main, "record_audit", fail_audit)
+    response = client.patch(
+        f"/api/v1/users/{target['id']}",
+        json={"full_name": "Should Not Persist"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "User update conflicts with current organization records"
+    refreshed = next(
+        user for user in client.get("/api/v1/users").json()
+        if user["id"] == target["id"]
+    )
+    assert refreshed["full_name"] == "Editor"
+
+
 def test_admin_cannot_demote_own_account(client: TestClient) -> None:
     current = client.get("/api/v1/auth/me").json()
     response = client.patch(
