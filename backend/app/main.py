@@ -1235,11 +1235,11 @@ def create_department(
     session.add(department)
     try:
         session.flush()
+        record_audit(session, admin, "department.created", "department", department.id)
+        session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Department name or code already exists")
-    record_audit(session, admin, "department.created", "department", department.id)
-    session.commit()
+        raise HTTPException(status_code=409, detail="Department creation conflicts with current organization records")
     session.refresh(department)
     return department
 
@@ -1284,11 +1284,14 @@ def update_department(
             setattr(department, field, value)
         try:
             session.flush()
+            record_audit(session, admin, "department.updated", "department", department.id)
+            session.commit()
         except IntegrityError:
             session.rollback()
-            raise HTTPException(status_code=409, detail="Department name or code already exists")
-        record_audit(session, admin, "department.updated", "department", department.id)
-        session.commit()
+            raise HTTPException(
+                status_code=409,
+                detail="Department update conflicts with current organization records",
+            )
     session.refresh(department)
     return department
 
