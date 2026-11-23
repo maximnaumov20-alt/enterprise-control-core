@@ -106,3 +106,17 @@ jobs:
 
       - name: Build frontend image
         run: docker build --tag ecc-frontend:test ./frontend
+
+      - name: Run PostgreSQL Compose smoke test
+        run: |
+          cp .env.example .env
+          docker compose up --build --detach
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8000/health; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail http://localhost:8000/health
+          docker compose exec -T api alembic current
+          docker compose down --volumes
