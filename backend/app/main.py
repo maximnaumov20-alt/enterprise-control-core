@@ -870,7 +870,7 @@ MAX_ASSET_IMPORT_ROWS = 5000
 
 def _spreadsheet_safe(value: object) -> str:
     text = "" if value is None else str(value)
-    if text.lstrip(" \\t\\r\\n").startswith(("=", "+", "-", "@")) or text.startswith(("\\t", "\\r", "\\n")):
+    if text.lstrip(" \t\r\n").startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
         return "'" + text
     return text
 
