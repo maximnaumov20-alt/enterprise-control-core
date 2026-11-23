@@ -1062,11 +1062,18 @@ async def import_assets(
             skipped += 1
             errors.append({"row": line_number, "error": "Duplicate asset tag or serial number"})
 
-    record_audit(
-        session, user, "asset.imported", "asset_import", "batch",
-        {"created": created, "skipped": skipped, "error_count": len(errors)},
-    )
-    session.commit()
+    try:
+        record_audit(
+            session, user, "asset.imported", "asset_import", "batch",
+            {"created": created, "skipped": skipped, "error_count": len(errors)},
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Asset import conflicts with current organization records",
+        )
     return {"created": created, "skipped": skipped, "errors": errors}
 
 
