@@ -236,6 +236,10 @@ export const api = {
     request<void>(`/api/v1/software-licenses/${id}`, { method: "DELETE" }),
   assets: (search = "") => request<Asset[]>(`/api/v1/assets?limit=200${search ? `&search=${encodeURIComponent(search)}` : ""}`),
   assetHistory: (id: number) => request<AssetHistoryEvent[]>(`/api/v1/assets/${id}/history?limit=100`),
+  bulkUpdateAssets: (payload: { asset_ids: number[]; status?: AssetStatus; assigned_to?: string | null }) =>
+    request<{ selected: number; updated: number; assets: Asset[] }>("/api/v1/assets/bulk", {
+      method: "PATCH", body: JSON.stringify(payload)
+    }),
   exportAssetsCsv: () => downloadAssetCsv(),
   importAssetsCsv: (file: File) => uploadAssetCsv(file),
   createAsset: (asset: AssetInput) => request<Asset>("/api/v1/assets", { method: "POST", body: JSON.stringify(asset) }),
