@@ -58,6 +58,6 @@ else
   echo "WARNING: backup is not encrypted. Set ECC_BACKUP_AGE_RECIPIENT to enable age encryption." >&2
 fi
 
-find "$BACKUP_DIR" -maxdepth 1 -type f \\( -name 'ecc-postgres-*.dump' -o -name 'ecc-postgres-*.dump.age' \\) -mtime "+$RETENTION_DAYS" -delete
+find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'ecc-postgres-*.dump' -o -name 'ecc-postgres-*.dump.age' \) -mtime "+$RETENTION_DAYS" -delete
 
 echo "Verified backup created: $published_file"
