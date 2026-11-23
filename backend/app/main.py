@@ -173,6 +173,12 @@ class UserCreate(BaseModel):
     role: UserRole
 
 
+class UserUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=160)
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
 class UserRead(BaseModel):
     id: int
     email: EmailStr
@@ -355,6 +361,31 @@ def create_user(
     session.commit()
     session.refresh(user)
     return user
+
+
+@app.patch("/api/v1/users/{user_id}", response_model=UserRead, tags=["users"])
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    session: SessionDep,
+    admin: Annotated[User, Depends(require_roles(UserRole.admin))],
+):
+    target = session.scalar(select(User).where(
+        User.id == user_id, User.organization_id == admin.organization_id
+    ))
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if target.id == admin.id and (
+        changes.get("is_active") is False or changes.get("role") not in (None, UserRole.admin)
+    ):
+        raise HTTPException(status_code=422, detail="You cannot disable or demote your own admin account")
+    for field, value in changes.items():
+        setattr(target, field, value)
+    record_audit(session, admin, "user.updated", "user", target.id, {"fields": sorted(changes)})
+    session.commit()
+    session.refresh(target)
+    return target
 
 
 @app.get("/api/v1/users", response_model=list[UserRead], tags=["users"])
