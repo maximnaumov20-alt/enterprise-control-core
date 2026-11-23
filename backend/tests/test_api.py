@@ -2015,3 +2015,37 @@ def test_department_update_audit_integrity_error_rolls_back_changes(
     assert {
         event["id"] for event in client.get("/api/v1/audit-events").json()
     } == existing_audit_ids
+
+
+def test_department_delete_audit_integrity_error_rolls_back_department(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = client.post(
+        "/api/v1/departments",
+        json={"name": "Department To Keep", "code": "DELETE-ROLLBACK"},
+    )
+    assert created.status_code == 201
+    department_id = created.json()["id"]
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_department_delete_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "department.deleted":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_department_delete_audit)
+    response = client.delete(f"/api/v1/departments/{department_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Department deletion conflicts with current organization records"
+    )
+    departments = client.get("/api/v1/departments")
+    assert departments.status_code == 200
+    assert any(item["id"] == department_id for item in departments.json())
+    assert {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    } == existing_audit_ids
