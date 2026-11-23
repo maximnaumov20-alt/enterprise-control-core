@@ -384,6 +384,22 @@ class AssetUpdate(BaseModel):
     status: AssetStatus | None = None
 
 
+class AssetBulkUpdate(BaseModel):
+    asset_ids: list[int] = Field(min_length=1, max_length=100)
+    status: AssetStatus | None = None
+    assigned_to: str | None = Field(default=None, max_length=160)
+
+    @model_validator(mode="after")
+    def validate_bulk_update(self):
+        if len(self.asset_ids) != len(set(self.asset_ids)):
+            raise ValueError("asset_ids must not contain duplicates")
+        if any(asset_id <= 0 for asset_id in self.asset_ids):
+            raise ValueError("asset_ids must contain positive integers")
+        if not ({"status", "assigned_to"} & self.model_fields_set):
+            raise ValueError("At least one field to update is required")
+        return self
+
+
 class AssetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -861,6 +877,56 @@ def list_assets(
     statement = statement.order_by(Asset.id.desc()).offset(offset).limit(limit)
     return list(session.scalars(statement).all())
 
+
+
+@app.patch("/api/v1/assets/bulk", tags=["assets"])
+def bulk_update_assets(
+    payload: AssetBulkUpdate,
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.admin, UserRole.editor))],
+):
+    assets = list(session.scalars(
+        select(Asset)
+        .where(
+            Asset.organization_id == user.organization_id,
+            Asset.id.in_(payload.asset_ids),
+        )
+        .order_by(Asset.id)
+    ).all())
+    if len(assets) != len(payload.asset_ids):
+        raise HTTPException(status_code=404, detail="One or more assets were not found")
+
+    requested = payload.model_dump(exclude_unset=True, exclude={"asset_ids"})
+    changed_count = 0
+    for asset in assets:
+        changes: dict[str, dict[str, str | None]] = {}
+        for field, value in requested.items():
+            old_value = getattr(asset, field)
+            old_value = old_value.value if isinstance(old_value, Enum) else old_value
+            new_value = value.value if isinstance(value, Enum) else value
+            if old_value != new_value:
+                changes[field] = {"old": old_value, "new": new_value}
+                setattr(asset, field, value)
+        if changes:
+            record_audit(
+                session, user, "asset.updated", "asset", asset.id,
+                {"changes": changes, "source": "bulk"},
+            )
+            changed_count += 1
+
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Bulk update conflicts with existing data")
+
+    for asset in assets:
+        session.refresh(asset)
+    return {
+        "selected": len(assets),
+        "updated": changed_count,
+        "assets": [AssetRead.model_validate(asset).model_dump(mode="json") for asset in assets],
+    }
 
 
 ASSET_CSV_COLUMNS = (
