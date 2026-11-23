@@ -186,3 +186,36 @@ def test_admin_can_create_users_and_viewer_cannot(client: TestClient) -> None:
 
     use_role(client, "viewer")
     assert client.get("/api/v1/users").status_code == 403
+
+
+def test_viewer_cannot_read_audit_log(client: TestClient) -> None:
+    use_role(client, "viewer")
+    assert client.get("/api/v1/audit-events").status_code == 403
+
+
+def test_admin_cannot_demote_own_account(client: TestClient) -> None:
+    current = client.get("/api/v1/auth/me").json()
+    response = client.patch(
+        f"/api/v1/users/{current['id']}",
+        json={"role": "editor"},
+    )
+    assert response.status_code == 422
+
+
+def test_deactivated_user_token_is_rejected(client: TestClient) -> None:
+    users = client.get("/api/v1/users").json()
+    editor = next(user for user in users if user["email"] == "editor@a.test")
+    disabled = client.patch(
+        f"/api/v1/users/{editor['id']}",
+        json={"is_active": False},
+    )
+    assert disabled.status_code == 200
+    use_role(client, "editor")
+    assert client.get("/api/v1/assets").status_code == 401
+
+
+def test_user_listing_is_organization_scoped(client: TestClient) -> None:
+    use_role(client, "other_admin")
+    users = client.get("/api/v1/users")
+    assert users.status_code == 200
+    assert [user["email"] for user in users.json()] == ["admin@b.test"]
