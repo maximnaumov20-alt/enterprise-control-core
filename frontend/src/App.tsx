@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Asset, AssetInput, AssetStatus, CurrentUser, setAccessToken } from "./api";
+import { api, Asset, AssetInput, AssetStatus, AuditEvent, CurrentUser, ManagedUser, UserRole, setAccessToken } from "./api";
 
 const emptyForm: AssetInput = {
   name: "", asset_tag: "", category: "Компьютер", manufacturer: "",
@@ -24,6 +24,11 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [section, setSection] = useState<"assets" | "users" | "audit">("assets");
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [userForm, setUserForm] = useState({ email: "", full_name: "", password: "", role: "viewer" as UserRole });
+  const [userSaving, setUserSaving] = useState(false);
 
   async function loadAssets(term = search) {
     setLoading(true);
@@ -71,6 +76,41 @@ export default function App() {
     setToken(null);
     setCurrentUser(null);
     resetForm();
+  }
+
+  async function openUsers() {
+    setSection("users");
+    setError("");
+    try { setUsers(await api.users()); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить пользователей"); }
+  }
+
+  async function openAudit() {
+    setSection("audit");
+    setError("");
+    try { setEvents(await api.auditEvents()); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить журнал"); }
+  }
+
+  async function createUser(event: FormEvent) {
+    event.preventDefault();
+    setUserSaving(true);
+    setError("");
+    try {
+      await api.createUser(userForm);
+      setUserForm({ email: "", full_name: "", password: "", role: "viewer" });
+      setUsers(await api.users());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось создать пользователя");
+    } finally { setUserSaving(false); }
+  }
+
+  async function changeUser(user: ManagedUser, changes: { role?: UserRole; is_active?: boolean }) {
+    setError("");
+    try {
+      await api.updateUser(user.id, changes);
+      setUsers(await api.users());
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось обновить пользователя"); }
   }
 
   const counts = useMemo(() => ({
@@ -138,15 +178,19 @@ export default function App() {
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">E</div><div><strong>ECC</strong><span>CONTROL CENTER</span></div></div>
       <div className="nav-caption">РАБОЧЕЕ ПРОСТРАНСТВО</div>
-      <div className="nav-item active"><span>▦</span> Оборудование</div>
-      <div className="nav-item disabled"><span>♙</span> Сотрудники <small>скоро</small></div>
-      <div className="nav-item disabled"><span>▤</span> Программное обеспечение</div>
-      <div className="nav-item disabled"><span>⚙</span> Обслуживание</div>
+      <button type="button" className={`nav-item ${section === "assets" ? "active" : ""}`} onClick={() => setSection("assets")}><span>▦</span> Оборудование</button>
+      {currentUser.role === "admin" && <>
+        <button type="button" className={`nav-item ${section === "users" ? "active" : ""}`} onClick={() => void openUsers()}><span>♙</span> Пользователи</button>
+        <button type="button" className={`nav-item ${section === "audit" ? "active" : ""}`} onClick={() => void openAudit()}><span>≡</span> Журнал действий</button>
+      </>}
+      <div className="nav-item disabled"><span>▤</span> Программное обеспечение <small>скоро</small></div>
+      <div className="nav-item disabled"><span>⚙</span> Обслуживание <small>скоро</small></div>
       <div className="sidebar-bottom"><span className={apiOnline ? "dot online" : "dot"} /> API {apiOnline ? "подключён" : "не подключён"}<small>Версия 0.2.0 · ранняя сборка</small></div>
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> Оборудование</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      {section === "assets" && <>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
 
       <section className="stats">
@@ -181,6 +225,41 @@ export default function App() {
           </tbody></table></div>}
       </section>
       <footer>Enterprise Control Center <span>·</span> Community Edition <span>·</span> Незавершённая разработка</footer>
+      </>}
+
+      {section === "users" && currentUser.role === "admin" && <section className="admin-section">
+        <div className="page-heading"><div><div className="eyebrow">АДМИНИСТРИРОВАНИЕ</div><h1>Пользователи</h1><p>Управление доступом сотрудников к организации</p></div></div>
+        {error && <div className="alert">{error}</div>}
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Создать учётную запись</h2><p>Пароль должен содержать не менее 12 символов</p></div></div>
+          <form onSubmit={createUser}>
+            <div className="form-grid user-form-grid">
+              <label>Электронная почта<input type="email" required value={userForm.email} onChange={e => setUserForm({ ...userForm, email: e.target.value })} /></label>
+              <label>Имя сотрудника<input required maxLength={160} value={userForm.full_name} onChange={e => setUserForm({ ...userForm, full_name: e.target.value })} /></label>
+              <label>Временный пароль<input type="password" required minLength={12} maxLength={128} autoComplete="new-password" value={userForm.password} onChange={e => setUserForm({ ...userForm, password: e.target.value })} /></label>
+              <label>Роль<select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value as UserRole })}><option value="viewer">Наблюдатель</option><option value="editor">Оператор</option><option value="admin">Администратор</option></select></label>
+            </div>
+            <div className="form-actions"><span className="required-note">Доступ будет ограничен текущей организацией</span><button className="primary" type="submit" disabled={userSaving}>{userSaving ? "Создание..." : "Создать пользователя"}</button></div>
+          </form>
+        </section>
+        <section className="panel inventory">
+          <div className="panel-heading"><div><h2>Учётные записи организации</h2><p>{users.length} пользователей</p></div><button className="subtle" onClick={() => void openUsers()}>Обновить</button></div>
+          <div className="table-wrap"><table><thead><tr><th>ПОЛЬЗОВАТЕЛЬ</th><th>РОЛЬ</th><th>СТАТУС</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
+            {users.map(user => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.email}</small></td><td><select value={user.role} disabled={user.id === currentUser.id} onChange={e => void changeUser(user, { role: e.target.value as UserRole })}><option value="viewer">Наблюдатель</option><option value="editor">Оператор</option><option value="admin">Администратор</option></select></td><td><span className={`status ${user.is_active ? "status-active" : "status-retired"}`}>{user.is_active ? "Активен" : "Отключён"}</span></td><td>{user.id === currentUser.id ? "Текущая учётная запись" : <button className="subtle" onClick={() => void changeUser(user, { is_active: !user.is_active })}>{user.is_active ? "Отключить" : "Включить"}</button>}</td></tr>)}
+          </tbody></table></div>
+        </section>
+      </section>}
+
+      {section === "audit" && currentUser.role === "admin" && <section className="admin-section">
+        <div className="page-heading"><div><div className="eyebrow">КОНТРОЛЬ И БЕЗОПАСНОСТЬ</div><h1>Журнал действий</h1><p>Последние события в текущей организации</p></div><button className="subtle" onClick={() => void openAudit()}>Обновить</button></div>
+        {error && <div className="alert">{error}</div>}
+        <section className="panel inventory">
+          <div className="table-wrap"><table><thead><tr><th>ВРЕМЯ</th><th>ПОЛЬЗОВАТЕЛЬ ID</th><th>ДЕЙСТВИЕ</th><th>ОБЪЕКТ</th><th>ДЕТАЛИ</th></tr></thead><tbody>
+            {events.map(event => <tr key={event.id}><td>{new Date(event.created_at).toLocaleString()}</td><td>{event.actor_user_id ?? "—"}</td><td><strong>{event.action}</strong></td><td>{event.entity_type} #{event.entity_id}</td><td className="audit-details">{JSON.stringify(event.details)}</td></tr>)}
+          </tbody></table></div>
+          {events.length === 0 && <div className="empty">Событий пока нет.</div>}
+        </section>
+      </section>}
     </main>
   </div>;
 }
