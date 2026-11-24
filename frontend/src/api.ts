@@ -43,6 +43,7 @@ export interface AssetHistoryEvent {
 
 export interface Department {
   id: number;
+  version: number;
   name: string;
   code: string;
   created_at: string;
@@ -220,6 +221,8 @@ export const api = {
   departments: () => request<Department[]>("/api/v1/departments"),
   createDepartment: (item: { name: string; code: string }) =>
     request<Department>("/api/v1/departments", { method: "POST", body: JSON.stringify(item) }),
+  updateDepartment: (id: number, item: { expected_version: number; name?: string; code?: string }) =>
+    request<Department>(`/api/v1/departments/${id}`, { method: "PATCH", body: JSON.stringify(item) }),
   employees: (search = "") => request<Employee[]>(`/api/v1/employees${search ? `?search=${encodeURIComponent(search)}` : ""}`),
   createEmployee: (item: EmployeeInput) =>
     request<Employee>("/api/v1/employees", { method: "POST", body: JSON.stringify(item) }),
