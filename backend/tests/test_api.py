@@ -86,6 +86,29 @@ def test_health_endpoint(client: TestClient) -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_api_responses_are_not_cached(client: TestClient) -> None:
+    successful_response = client.get("/api/v1/assets")
+    assert successful_response.status_code == 200
+
+    client.headers.pop("Authorization", None)
+    unauthorized_response = client.get("/api/v1/assets")
+    assert unauthorized_response.status_code == 401
+
+    token_response = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    assert token_response.status_code == 200
+
+    for response in (successful_response, unauthorized_response, token_response):
+        assert response.headers.get("Cache-Control") == "no-store"
+        assert response.headers.get("Pragma") == "no-cache"
+
+    health_response = client.get("/health")
+    assert "Cache-Control" not in health_response.headers
+    assert "Pragma" not in health_response.headers
+
+
 def test_password_login_returns_bearer_token(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/token",
