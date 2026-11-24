@@ -474,6 +474,7 @@ jobs:
               print("unexpected fake AWS invocation: " + repr(args), file=sys.stderr)
               raise SystemExit(90)
           PY
+          drill_incident_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           chmod 700 /tmp/ecc-fake-aws-bin/aws
           ECC_FAKE_S3_SOURCE="$backup_file" PATH="/tmp/ecc-fake-aws-bin:$PATH" \
             bash scripts/download-backup-s3.sh \
@@ -490,6 +491,7 @@ jobs:
             sleep 2
           done
           COMPOSE_PROJECT_NAME="$drill_project" docker compose exec -T db pg_isready -U ecc -d ecc
+          drill_restore_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           COMPOSE_PROJECT_NAME="$drill_project" ECC_BACKUP_AGE_IDENTITY=/tmp/ecc-ci-age-identity.txt \
             ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh \
             /tmp/ecc-s3-restore-drill/backup.dump.age
@@ -499,11 +501,28 @@ jobs:
           drill_audit_action=$(COMPOSE_PROJECT_NAME="$drill_project" docker compose exec -T db \
             psql -U ecc -d ecc -Atqc "SELECT action FROM audit_events WHERE id=$backup_audit_id")
           test "$drill_audit_action" = "asset.created"
+          drill_restore_completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          mkdir -p /tmp/ecc-recovery-reports
+          python scripts/recovery-drill-report.py \
+            --backup-reference s3://ecc-ci-bucket/restore-drill/backup.dump.age \
+            --incident-at "$drill_incident_at" \
+            --restore-started-at "$drill_restore_started_at" \
+            --restore-completed-at "$drill_restore_completed_at" \
+            --output "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json"
           COMPOSE_PROJECT_NAME="$drill_project" docker compose down --volumes --remove-orphans
           trap - EXIT
 
           docker compose exec -T api alembic current
           docker compose down --volumes
+
+      - name: Upload recovery drill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecc-recovery-drill-${{ github.run_id }}
+          path: /tmp/ecc-recovery-reports/*.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   shell-validation:
     runs-on: ubuntu-latest
