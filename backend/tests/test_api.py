@@ -2562,3 +2562,22 @@ def test_all_versioned_entities_reject_real_concurrent_writes() -> None:
     finally:
         Base.metadata.drop_all(bind=test_engine)
         test_engine.dispose()
+
+
+def test_department_create_audit_failure_rolls_back_department(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    existing_events = client.get("/api/v1/audit-events").json()
+
+    def fail_audit(*args, **kwargs):
+        raise IntegrityError("insert audit event", {}, Exception("simulated audit failure"))
+
+    monkeypatch.setattr(main, "record_audit", fail_audit)
+    response = client.post(
+        "/api/v1/departments",
+        json={"name": "Must Roll Back", "code": "ROLLBACK"},
+    )
+
+    assert response.status_code == 409
+    assert client.get("/api/v1/departments").json() == []
+    assert client.get("/api/v1/audit-events").json() == existing_events
