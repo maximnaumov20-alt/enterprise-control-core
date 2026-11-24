@@ -90,6 +90,18 @@ Configure bucket versioning, lifecycle retention, public-access blocking, least-
 
 The upload script performs a full read-back and compares SHA-256 and byte size with the local archive. This confirms the bytes returned by the S3 endpoint at upload time, but it is not a restore drill or a guarantee of long-term durability. Periodic download, decryption and isolated database restore tests remain necessary.
 
+Use the verified downloader to retrieve one encrypted object without overwriting an existing file:
+
+```bash
+bash scripts/download-backup-s3.sh \
+  s3://company-ecc-backups/production/ecc-postgres-YYYYMMDDTHHMMSSZ.dump.age \
+  ./recovery/ecc-postgres-YYYYMMDDTHHMMSSZ.dump.age
+```
+
+The downloader validates the object URI, requires SHA-256 metadata and a positive content length, downloads to a private temporary file, compares the actual bytes with the remote metadata, and only then publishes the output file. It does not decrypt or restore the database; use the restore procedure below after verifying the target environment.
+
+The CI restore drill uses a fake AWS CLI endpoint to exercise the download client logic, then decrypts the downloaded archive and restores it into a separate Docker Compose project with an independent PostgreSQL volume. It verifies both a restored asset and its audit event. This validates the end-to-end client-side recovery path without AWS credentials or access to the primary CI database; it does not test AWS availability, IAM policy behavior or long-term object durability.
+
 The CI suite also exercises the uploader offline with a fake AWS CLI: it checks successful upload/read-back, rejects metadata checksum and size mismatches plus corrupted downloaded bytes, refuses plaintext archives, and validates SSE-KMS argument handling. This tests client-side behavior only; it does not contact AWS or prove provider-side durability.
 
 ## Automated backup cycle
