@@ -1036,7 +1036,7 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
     # Company A must not read, modify, or delete Company B records by guessing IDs.
     use_role(client, "admin")
     assert client.patch(
-        f"/api/v1/departments/{department_b['id']}", json={"name": "Hijacked"}
+        f"/api/v1/departments/{department_b['id']}", json={"expected_version": department_b["version"], "name": "Hijacked"}
     ).status_code == 404
     assert client.delete(f"/api/v1/departments/{department_b['id']}").status_code == 404
     assert client.patch(
@@ -1618,7 +1618,7 @@ def test_noop_department_update_does_not_create_audit_event(client: TestClient) 
 
     updated = client.patch(
         f"/api/v1/departments/{department_id}",
-        json={"name": "No-op Department", "code": "NOOP"},
+        json={"expected_version": created.json()["version"], "name": "No-op Department", "code": "NOOP"},
     )
     assert updated.status_code == 200
     assert updated.json()["name"] == "No-op Department"
@@ -2069,12 +2069,12 @@ def test_department_update_audit_integrity_error_rolls_back_changes(
     monkeypatch.setattr(main, "record_audit", fail_department_update_audit)
     response = client.patch(
         f"/api/v1/departments/{department_id}",
-        json={"name": "Partially Updated Department"},
+        json={"expected_version": created.json()["version"], "name": "Partially Updated Department"},
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        "Department update conflicts with current organization records"
+        "Department update conflicts with current organization records or stale version"
     )
     stored = client.get("/api/v1/departments")
     assert stored.status_code == 200
