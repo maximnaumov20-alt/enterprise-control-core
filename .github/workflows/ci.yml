@@ -476,3 +476,6 @@ jobs:
 
       - name: Test S3 uploader with a fake AWS CLI
         run: python scripts/tests/test_upload_backup_s3.py
+
+      - name: Test encrypted backup-cycle orchestration
+        run: python scripts/tests/test_run_backup.py
