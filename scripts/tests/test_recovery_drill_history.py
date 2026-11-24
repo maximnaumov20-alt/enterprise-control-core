@@ -51,6 +51,18 @@ class RecoveryHistoryTests(unittest.TestCase):
             self.assertIn("100", content)
             self.assertIn("abc123", content)
 
+    def test_rejects_negative_measurement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            path = root / "negative.json"
+            invalid = report("2026-11-24T10:00:00+00:00", -1, None)
+            path.write_text(json.dumps(invalid), encoding="utf-8")
+            result = subprocess.run(
+                ["python", str(SCRIPT), "--report", str(path), "--output", str(root / "history.md")],
+                cwd=ROOT, text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+
     def test_rejects_timezone_naive_generated_timestamp(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
