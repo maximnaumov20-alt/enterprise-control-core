@@ -400,6 +400,9 @@ jobs:
             -d '{"name":"Backup baseline","asset_tag":"CI-BACKUP-001","category":"Server"}' \
             http://localhost:5173/api/v1/assets)
           backup_asset_id=$(printf '%s' "$backup_asset" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          backup_audit_id=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \
+            "SELECT id FROM audit_events WHERE action='asset.created' AND entity_type='asset' AND entity_id='$backup_asset_id' ORDER BY id DESC LIMIT 1")
+          test -n "$backup_audit_id"
 
           ECC_BACKUP_DIR=/tmp/ecc-ci-backups ECC_BACKUP_AGE_RECIPIENT="$age_recipient" bash scripts/backup-postgres.sh
           backup_file=$(find /tmp/ecc-ci-backups -maxdepth 1 -type f -name 'ecc-postgres-*.dump.age' -print -quit)
@@ -410,11 +413,19 @@ jobs:
           changed_name=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \
             "SELECT name FROM assets WHERE id=$backup_asset_id")
           test "$changed_name" = "Changed after backup"
+          docker compose exec -T db psql -U ecc -d ecc -v ON_ERROR_STOP=1 \
+            -c "UPDATE audit_events SET action='ci.post_backup_mutation' WHERE id=$backup_audit_id"
+          mutated_audit_action=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \
+            "SELECT action FROM audit_events WHERE id=$backup_audit_id")
+          test "$mutated_audit_action" = "ci.post_backup_mutation"
 
           ECC_BACKUP_AGE_IDENTITY=/tmp/ecc-ci-age-identity.txt ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh "$backup_file"
           restored_name=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \
             "SELECT name FROM assets WHERE id=$backup_asset_id")
           test "$restored_name" = "Backup baseline"
+          restored_audit_action=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \
+            "SELECT action FROM audit_events WHERE id=$backup_audit_id")
+          test "$restored_audit_action" = "asset.created"
 
           docker compose exec -T api alembic current
           docker compose down --volumes
