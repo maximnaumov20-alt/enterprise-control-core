@@ -419,6 +419,28 @@ jobs:
             "SELECT action FROM audit_events WHERE id=$backup_audit_id")
           test "$mutated_audit_action" = "ci.post_backup_mutation"
 
+          # Invalid archives must be rejected before pg_restore changes the target database.
+          printf 'not a PostgreSQL archive\\n' > /tmp/ecc-invalid-backup.dump
+          if ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh /tmp/ecc-invalid-backup.dump; then
+            echo "Restore accepted an invalid PostgreSQL archive" >&2
+            exit 1
+          fi
+          unchanged_name=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \\
+            "SELECT name FROM assets WHERE id=$backup_asset_id")
+          unchanged_audit_action=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \\
+            "SELECT action FROM audit_events WHERE id=$backup_audit_id")
+          test "$unchanged_name" = "Changed after backup"
+          test "$unchanged_audit_action" = "ci.post_backup_mutation"
+
+          if ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh /tmp/ecc-file-that-does-not-exist.dump; then
+            echo "Restore accepted a missing backup file" >&2
+            exit 1
+          fi
+          if bash scripts/restore-postgres.sh "$backup_file"; then
+            echo "Restore ran without explicit destructive-operation confirmation" >&2
+            exit 1
+          fi
+
           ECC_BACKUP_AGE_IDENTITY=/tmp/ecc-ci-age-identity.txt ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh "$backup_file"
           restored_name=$(docker compose exec -T db psql -U ecc -d ecc -Atqc \
             "SELECT name FROM assets WHERE id=$backup_asset_id")
