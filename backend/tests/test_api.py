@@ -6,7 +6,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
-from sqlalchemy.orm.exc import StaleDataError
 
 from app import main
 from app.main import (
