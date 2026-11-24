@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import pathlib
 import tempfile
@@ -15,6 +16,9 @@ def load_report(path: pathlib.Path) -> tuple[dict, dict]:
         report = json.load(stream)
     if not isinstance(report, dict) or report.get("schema_version") != 1 or report.get("report_type") != "ecc_recovery_drill":
         raise ValueError(f"unsupported recovery report: {path}")
+    generated_value = report.get("generated_at")
+    if not isinstance(generated_value, str) or not generated_value:
+        raise ValueError(f"generated_at must be a timezone-aware ISO-8601 timestamp: {path}")
     metadata_path = path.with_suffix(".metadata.json")
     metadata = {}
     if metadata_path.exists():
@@ -22,7 +26,7 @@ def load_report(path: pathlib.Path) -> tuple[dict, dict]:
             metadata = json.load(stream)
         if not isinstance(metadata, dict):
             raise ValueError(f"metadata must be a JSON object: {metadata_path}")
-    generated = datetime.fromisoformat(report["generated_at"].replace("Z", "+00:00"))
+    generated = datetime.fromisoformat(generated_value.replace("Z", "+00:00"))
     if generated.tzinfo is None or generated.utcoffset() is None:
         raise ValueError(f"generated_at must include a timezone: {path}")
     return report, {"metadata": metadata, "generated": generated.astimezone(timezone.utc), "path": path.name}
@@ -35,8 +39,8 @@ def markdown_cell(value: object) -> str:
 def format_seconds(value: object) -> str:
     if value is None:
         return "not measured"
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("recovery measurements must be numeric or null")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        raise ValueError("recovery measurements must be finite, non-negative numbers or null")
     return f"{value:g} s"
 
 
