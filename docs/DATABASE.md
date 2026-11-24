@@ -179,3 +179,18 @@ ECC_BACKUP_AGE_IDENTITY=/secure/location/ecc-backup-identity.txt \
 The script requires explicit confirmation, checks the target database name and validates the plaintext PostgreSQL archive before restoring. Decrypted temporary files are created with restrictive permissions and removed on exit. PostgreSQL executes the restore in one transaction; a failed restore is rolled back where PostgreSQL supports transactional execution. Verify application health, migration state and representative records before allowing users back in.
 
 These scripts are an operational starting point, not a certified disaster-recovery system. Off-host replication, point-in-time recovery, automated scheduling, immutable retention, independent key escrow and measured RTO/RPO objectives remain separate operational responsibilities. Test recovery regularly in an isolated environment before production use.
+
+## Recovery-drill evidence archive retrieval
+
+The optional recovery-evidence archiver stores each workflow run under a prefix shaped like `s3://BUCKET/ecc/recovery-drills/RUN_ID/RUN_ATTEMPT/`. To retrieve evidence, use the verified downloader with the exact filenames recorded for that run:
+
+```bash
+python scripts/download-recovery-reports-s3.py \
+  --source s3://company-ecc-archive/ecc/recovery-drills/123456789/1 \
+  --output-dir ./recovery-evidence/123456789-1 \
+  --file drill-123456789.json \
+  --file drill-123456789.metadata.json \
+  --file history.md
+```
+
+The downloader checks each object's SHA-256 metadata and content length with `head-object`, downloads to a private temporary file, verifies the actual bytes, and publishes the file without overwriting an existing destination. The caller needs narrowly scoped `s3:HeadObject` and `s3:GetObject` permissions for the selected prefix. It does not restore a database: these are recovery-drill evidence documents, not PostgreSQL backup archives. Offline tests use a fake AWS CLI and do not prove real AWS IAM behavior, availability or durability.
