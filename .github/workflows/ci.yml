@@ -535,3 +535,4 @@ jobs:
         run: |
           python scripts/tests/test_run_backup.py
           python scripts/tests/test_download_backup_s3.py
+          python scripts/tests/test_recovery_drill_report.py
