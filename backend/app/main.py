@@ -147,9 +147,12 @@ class Department(Base):
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     code: Mapped[str] = mapped_column(String(40), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
+    __mapper_args__ = {"version_id_col": version}
 
 
 class Employee(Base):
@@ -446,6 +449,7 @@ class DepartmentCreate(BaseModel):
 
 
 class DepartmentUpdate(BaseModel):
+    expected_version: int = Field(gt=0)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     code: str | None = Field(default=None, min_length=1, max_length=40)
 
@@ -455,6 +459,7 @@ class DepartmentRead(BaseModel):
     name: str
     code: str
     created_at: datetime
+    version: int
 
 
 class EmployeeCreate(BaseModel):
@@ -1303,7 +1308,9 @@ def update_department(
     ))
     if department is None:
         raise HTTPException(status_code=404, detail="Department not found")
-    changes = payload.model_dump(exclude_unset=True)
+    if payload.expected_version != department.version:
+        raise HTTPException(status_code=409, detail="Department has changed; reload it before updating")
+    changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
     for field in ("name", "code"):
         if field in changes:
             if changes[field] is None or not changes[field].strip():
@@ -1322,11 +1329,11 @@ def update_department(
             session.flush()
             record_audit(session, admin, "department.updated", "department", department.id)
             session.commit()
-        except IntegrityError:
+        except (IntegrityError, StaleDataError):
             session.rollback()
             raise HTTPException(
                 status_code=409,
-                detail="Department update conflicts with current organization records",
+                detail="Department update conflicts with current organization records or stale version",
             )
     session.refresh(department)
     return department
