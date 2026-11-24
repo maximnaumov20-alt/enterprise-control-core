@@ -132,7 +132,7 @@ python scripts/recovery-drill-report.py \
   --incident-at 2026-11-24T10:00:00Z \
   --restore-started-at 2026-11-24T10:05:00Z \
   --restore-completed-at 2026-11-24T10:25:00Z \
-  --last-committed-at 2026-11-24T09:59:00Z \
+  --last-recoverable-commit-at 2026-11-24T09:59:00Z \
   --rto-target-seconds 1800 \
   --rpo-target-seconds 120 \
   --output ./recovery-reports/drill-2026-11-24.json
