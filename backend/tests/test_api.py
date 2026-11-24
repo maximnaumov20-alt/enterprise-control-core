@@ -2097,6 +2097,67 @@ def test_software_license_create_integrity_error_rolls_back_without_audit(
     assert audit_ids == existing_audit_ids
 
 
+def test_employee_delete_persists_audit_snapshot(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "EMP-DELETE-SNAPSHOT-001",
+            "full_name": "Jordan Example",
+            "job_title": "Network Engineer",
+            "email": "jordan.example@example.com",
+            "phone": "+49-000-000000",
+            "is_active": False,
+        },
+    )
+    assert created.status_code == 201
+    employee = created.json()
+
+    deleted = client.delete(f"/api/v1/employees/{employee['id']}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/v1/employees/{employee['id']}").status_code == 404
+
+    events = client.get("/api/v1/audit-events").json()
+    matching = [
+        event for event in events
+        if event["action"] == "employee.deleted"
+        and event["entity_id"] == str(employee["id"])
+    ]
+    assert len(matching) == 1
+    assert matching[0]["details"] == {
+        "employee_number": "EMP-DELETE-SNAPSHOT-001",
+        "full_name": "Jordan Example",
+        "job_title": "Network Engineer",
+        "department_id": None,
+        "is_active": False,
+    }
+
+
+def test_department_delete_persists_audit_snapshot(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/departments",
+        json={"name": "Infrastructure", "code": "INFRA"},
+    )
+    assert created.status_code == 201
+    department = created.json()
+
+    deleted = client.delete(f"/api/v1/departments/{department['id']}")
+    assert deleted.status_code == 204
+    assert client.get("/api/v1/departments").status_code == 200
+    assert all(item["id"] != department["id"] for item in client.get("/api/v1/departments").json())
+
+    events = client.get("/api/v1/audit-events").json()
+    matching = [
+        event for event in events
+        if event["action"] == "department.deleted"
+        and event["entity_id"] == str(department["id"])
+    ]
+    assert len(matching) == 1
+    assert matching[0]["details"] == {
+        "name": "Infrastructure",
+        "code": "INFRA",
+    }
+
+
 def test_employee_delete_integrity_error_rolls_back_without_audit(
     client: TestClient, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
