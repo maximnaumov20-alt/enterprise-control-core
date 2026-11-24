@@ -120,6 +120,28 @@ Schedule this command with the host's systemd timer or cron only after configuri
 
 The repository does not enable a schedule on a real server: deployment host, service account, secrets storage, monitoring destination and backup window must be configured by the operator. A successful run confirms archive creation and S3 metadata/size checks only; it does not replace periodic download, decrypt and isolated restore drills.
 
+## Recovery-drill measurements (RPO/RTO)
+
+The report generator records measured recovery timestamps and evaluates only targets explicitly supplied by the operator. It does not schedule drills or independently verify that a service is healthy; timestamps must come from trusted monitoring or the recovery procedure.
+
+Example:
+
+```bash
+python scripts/recovery-drill-report.py \
+  --backup-reference s3://company-ecc-backups/production/ecc-postgres-YYYYMMDDTHHMMSSZ.dump.age \
+  --incident-at 2026-11-24T10:00:00Z \
+  --restore-started-at 2026-11-24T10:05:00Z \
+  --restore-completed-at 2026-11-24T10:25:00Z \
+  --last-committed-at 2026-11-24T09:59:00Z \
+  --rto-target-seconds 1800 \
+  --rpo-target-seconds 120 \
+  --output ./recovery-reports/drill-2026-11-24.json
+```
+
+RTO is measured from incident declaration to verified restore completion. RPO is measured only when the operator supplies a trustworthy timestamp for the last committed transaction before the incident. If that timestamp is unavailable, the report leaves RPO null and explicitly marks it as not measured; backup age is not silently substituted for data-loss measurement. Reports are written with owner-only permissions and existing reports are never overwritten.
+
+The report is an evidence record, not a compliance certification. It does not prove the accuracy of supplied timestamps, continuous service availability, backup integrity, or successful application-level validation. Store reports in an access-controlled location and retain the logs and test evidence used to produce them.
+
 ## Restore
 
 Restore replaces database objects in the configured `ecc` database. Stop application writes first, confirm the Compose project points to the intended environment and preserve a separate backup of the current database.
