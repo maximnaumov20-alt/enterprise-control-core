@@ -528,10 +528,10 @@ jobs:
           }
           with open(metadata_path, "x", encoding="utf-8") as stream:
               json.dump(metadata, stream, indent=2, sort_keys=True)
-              stream.write("\\n")
+              stream.write("\n")
           PY
-          python scripts/recovery-drill-history.py \\
-            --report "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json" \\
+          python scripts/recovery-drill-history.py \
+            --report "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json" \
             --output "/tmp/ecc-recovery-reports/history.md"
           COMPOSE_PROJECT_NAME="$drill_project" docker compose down --volumes --remove-orphans
           trap - EXIT
