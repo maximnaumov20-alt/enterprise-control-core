@@ -2633,6 +2633,7 @@ def test_bulk_asset_update_audit_failure_rolls_back_all_assets(
         assert current["status"] == "active"
         assert current["assigned_to"] is None
         assert current["version"] == asset["version"]
-        assert client.get(f"/api/v1/assets/{asset['id']}/history").json() == []
+        history = client.get(f"/api/v1/assets/{asset['id']}/history").json()
+        assert [event["action"] for event in history] == ["asset.created"]
 
     assert client.get("/api/v1/audit-events").json() == before_events
