@@ -251,9 +251,10 @@ jobs:
             -d "{\"asset_id\":$asset_id,\"title\":\"CI maintenance check\",\"description\":\"PostgreSQL integration smoke test\",\"priority\":\"normal\"}" \
             http://localhost:5173/api/v1/maintenance-requests)
           maintenance_id=$(printf '%s' "$maintenance" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          maintenance_version=$(printf '%s' "$maintenance" | python -c 'import json,sys; print(json.load(sys.stdin)["version"])')
           curl --fail --silent --show-error -X PATCH \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
-            -d '{"status":"resolved"}' \
+            -d "{\\"expected_version\\":$maintenance_version,\\"status\\":\\"resolved\\"}" \
             "http://localhost:5173/api/v1/maintenance-requests/$maintenance_id"
 
           department=$(curl --fail --silent --show-error -X POST \
