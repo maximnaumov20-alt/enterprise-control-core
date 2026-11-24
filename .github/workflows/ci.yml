@@ -550,6 +550,67 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  archive-recovery-evidence:
+    needs: docker-build
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.docker-build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download recovery drill evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ecc-recovery-drill-${{ github.run_id }}
+          path: /tmp/ecc-recovery-reports
+
+      - name: Check optional recovery archive configuration
+        id: recovery-archive-config
+        env:
+          ROLE_ARN: ${{ secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN }}
+          ARCHIVE_BUCKET: ${{ vars.ECC_RECOVERY_ARCHIVE_BUCKET }}
+          AWS_REGION: ${{ vars.ECC_AWS_REGION }}
+        run: |
+          if [[ -n "$ROLE_ARN" && -n "$ARCHIVE_BUCKET" && -n "$AWS_REGION" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Optional S3 recovery archive is not configured."
+          fi
+
+      - name: Configure optional recovery archive credentials
+        if: ${{ steps.recovery-archive-config.outputs.enabled == 'true' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN }}
+          aws-region: ${{ vars.ECC_AWS_REGION }}
+          role-session-name: ecc-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Archive recovery evidence to S3
+        if: ${{ steps.recovery-archive-config.outputs.enabled == 'true' }}
+        env:
+          ARCHIVE_BUCKET: ${{ vars.ECC_RECOVERY_ARCHIVE_BUCKET }}
+        run: |
+          report="/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json"
+          metadata="/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.metadata.json"
+          history="/tmp/ecc-recovery-reports/history.md"
+          if [[ ! -s "$report" || ! -s "$metadata" || ! -s "$history" ]]; then
+            echo "Recovery evidence is incomplete; refusing to publish a partial archive."
+            exit 1
+          fi
+          aws --version
+          python scripts/archive-recovery-reports-s3.py \
+            --destination "s3://$ARCHIVE_BUCKET/ecc/recovery-drills" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --file "$report" \
+            --file "$metadata" \
+            --file "$history"
+
+
   shell-validation:
     runs-on: ubuntu-latest
     steps:
@@ -583,3 +644,4 @@ jobs:
           python scripts/tests/test_recovery_drill_report.py
           python scripts/tests/test_validate_recovery_report.py
           python scripts/tests/test_recovery_drill_history.py
+          python scripts/tests/test_archive_recovery_reports_s3.py
