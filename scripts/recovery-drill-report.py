@@ -34,7 +34,7 @@ def build_report(args: argparse.Namespace) -> dict:
     incident = args.incident_at
     completed = args.restore_completed_at
     started = args.restore_started_at
-    committed = args.last_committed_at
+    committed = args.last_recoverable_commit_at
 
     if completed < incident:
         raise ValueError("restore completion cannot precede incident time")
@@ -43,7 +43,7 @@ def build_report(args: argparse.Namespace) -> dict:
     if committed is not None and committed > incident:
         raise ValueError("last committed transaction cannot be after incident time")
     if args.rpo_target_seconds is not None and committed is None:
-        raise ValueError("--rpo-target-seconds requires --last-committed-at")
+        raise ValueError("--rpo-target-seconds requires --last-recoverable-commit-at")
 
     rto = (completed - incident).total_seconds()
     execution = (completed - started).total_seconds() if started is not None else None
@@ -68,7 +68,7 @@ def build_report(args: argparse.Namespace) -> dict:
             "incident_at": incident.isoformat(),
             "restore_started_at": started.isoformat() if started else None,
             "restore_completed_at": completed.isoformat(),
-            "last_committed_at": committed.isoformat() if committed else None,
+            "last_recoverable_commit_at": committed.isoformat() if committed else None,
         },
         "measurements_seconds": {
             "observed_rto": rto,
@@ -84,7 +84,7 @@ def build_report(args: argparse.Namespace) -> dict:
         "measurement_notes": {
             "rto": "Incident declaration to verified restore completion.",
             "rpo": (
-                "Incident time minus last known committed transaction time; "
+                "Incident time minus last known recoverable committed transaction time; "
                 "requires a trustworthy transaction timestamp."
             ),
             "missing_rpo": (
@@ -122,7 +122,7 @@ def main() -> int:
     parser.add_argument("--incident-at", required=True, type=parse_timestamp)
     parser.add_argument("--restore-started-at", type=parse_timestamp)
     parser.add_argument("--restore-completed-at", required=True, type=parse_timestamp)
-    parser.add_argument("--last-committed-at", type=parse_timestamp)
+    parser.add_argument("--last-recoverable-commit-at", type=parse_timestamp)
     parser.add_argument("--rto-target-seconds", type=positive_seconds)
     parser.add_argument("--rpo-target-seconds", type=positive_seconds)
     parser.add_argument("--output", required=True, type=pathlib.Path)
