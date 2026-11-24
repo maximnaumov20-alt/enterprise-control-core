@@ -510,6 +510,29 @@ jobs:
             --restore-completed-at "$drill_restore_completed_at" \
             --output "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json"
           python scripts/validate-recovery-report.py "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json"
+          RECOVERY_REPORT="/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json" python - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          report_path = os.environ["RECOVERY_REPORT"]
+          metadata_path = report_path.removesuffix(".json") + ".metadata.json"
+          metadata = {
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "workflow": os.environ["GITHUB_WORKFLOW"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "event_name": os.environ["GITHUB_EVENT_NAME"],
+              "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "recorded_at": datetime.now(timezone.utc).isoformat(),
+          }
+          with open(metadata_path, "x", encoding="utf-8") as stream:
+              json.dump(metadata, stream, indent=2, sort_keys=True)
+              stream.write("\\n")
+          PY
+          python scripts/recovery-drill-history.py \\
+            --report "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json" \\
+            --output "/tmp/ecc-recovery-reports/history.md"
           COMPOSE_PROJECT_NAME="$drill_project" docker compose down --volumes --remove-orphans
           trap - EXIT
 
@@ -521,7 +544,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ecc-recovery-drill-${{ github.run_id }}
-          path: /tmp/ecc-recovery-reports/*.json
+          path: |
+            /tmp/ecc-recovery-reports/*.json
+            /tmp/ecc-recovery-reports/*.md
           if-no-files-found: ignore
           retention-days: 30
 
@@ -557,3 +582,4 @@ jobs:
           python scripts/tests/test_download_backup_s3.py
           python scripts/tests/test_recovery_drill_report.py
           python scripts/tests/test_validate_recovery_report.py
+          python scripts/tests/test_recovery_drill_history.py
