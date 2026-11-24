@@ -50,6 +50,7 @@ export interface Department {
 
 export interface Employee {
   id: number;
+  version: number;
   employee_number: string;
   full_name: string;
   department_id: number | null;
@@ -222,7 +223,7 @@ export const api = {
   employees: (search = "") => request<Employee[]>(`/api/v1/employees${search ? `?search=${encodeURIComponent(search)}` : ""}`),
   createEmployee: (item: EmployeeInput) =>
     request<Employee>("/api/v1/employees", { method: "POST", body: JSON.stringify(item) }),
-  updateEmployee: (id: number, item: Partial<EmployeeInput> & { is_active?: boolean }) =>
+  updateEmployee: (id: number, item: Partial<EmployeeInput> & { expected_version: number; is_active?: boolean }) =>
     request<Employee>(`/api/v1/employees/${id}`, { method: "PATCH", body: JSON.stringify(item) }),
   deleteEmployee: (id: number) => request<void>(`/api/v1/employees/${id}`, { method: "DELETE" }),
   maintenanceRequests: () => request<MaintenanceRequest[]>("/api/v1/maintenance-requests?limit=200"),

@@ -869,7 +869,7 @@ def test_department_and_employee_directory_crud(client: TestClient) -> None:
 
     updated = client.patch(
         f"/api/v1/employees/{employee_id}",
-        json={"job_title": "Senior Systems Engineer"},
+        json={"expected_version": employee.json()["version"], "job_title": "Senior Systems Engineer"},
     )
     assert updated.status_code == 200
     assert updated.json()["job_title"] == "Senior Systems Engineer"
@@ -877,6 +877,50 @@ def test_department_and_employee_directory_crud(client: TestClient) -> None:
     use_role(client, "viewer")
     assert client.get("/api/v1/employees").status_code == 403
     assert client.get("/api/v1/departments").status_code == 403
+
+
+def test_employee_optimistic_locking_rejects_stale_updates(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/employees",
+        json={"employee_number": "EMP-LOCK-001", "full_name": "Concurrent Employee"},
+    )
+    assert created.status_code == 201
+    employee = created.json()
+    assert employee["version"] == 1
+
+    first_update = client.patch(
+        f"/api/v1/employees/{employee['id']}",
+        json={"expected_version": 1, "job_title": "Updated by first editor"},
+    )
+    assert first_update.status_code == 200
+    assert first_update.json()["version"] == 2
+
+    stale_update = client.patch(
+        f"/api/v1/employees/{employee['id']}",
+        json={"expected_version": 1, "full_name": "Stale overwrite"},
+    )
+    assert stale_update.status_code == 409
+
+    stored = next(
+        item for item in client.get("/api/v1/employees").json()
+        if item["id"] == employee["id"]
+    )
+    assert stored["full_name"] == "Concurrent Employee"
+    assert stored["job_title"] == "Updated by first editor"
+    assert stored["version"] == 2
+
+
+def test_employee_update_requires_expected_version(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/employees",
+        json={"employee_number": "EMP-LOCK-REQUIRED", "full_name": "Version Required"},
+    )
+    assert created.status_code == 201
+    response = client.patch(
+        f"/api/v1/employees/{created.json()['id']}",
+        json={"full_name": "Missing version"},
+    )
+    assert response.status_code == 422
 
 
 def test_department_and_employee_tenant_isolation(client: TestClient) -> None:
@@ -996,7 +1040,7 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
     ).status_code == 404
     assert client.delete(f"/api/v1/departments/{department_b['id']}").status_code == 404
     assert client.patch(
-        f"/api/v1/employees/{employee_b['id']}", json={"full_name": "Hijacked"}
+        f"/api/v1/employees/{employee_b['id']}", json={"expected_version": 1, "full_name": "Hijacked"}
     ).status_code == 404
     assert client.delete(f"/api/v1/employees/{employee_b['id']}").status_code == 404
     assert client.get(f"/api/v1/software-licenses/{license_b['id']}").status_code == 404
@@ -1194,7 +1238,7 @@ def test_related_records_reject_foreign_departments_and_inactive_assignees(clien
     use_role(client, "admin")
     reassignment = client.patch(
         f"/api/v1/employees/{employee.json()['id']}",
-        json={"department_id": department_b_id},
+        json={"expected_version": employee.json()["version"], "department_id": department_b_id},
     )
     assert reassignment.status_code == 422
 
@@ -1612,12 +1656,12 @@ def test_employee_update_integrity_error_rolls_back_without_audit(
     monkeypatch.setattr(main, "record_audit", fail_employee_update_audit)
     response = client.patch(
         f"/api/v1/employees/{employee_id}",
-        json={"full_name": "Partially Updated Employee"},
+        json={"expected_version": created.json()["version"], "full_name": "Partially Updated Employee"},
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        "Employee update conflicts with current organization records"
+        "Employee update conflicts with current organization records or stale version"
     )
     stored = next(
         employee for employee in client.get("/api/v1/employees").json()
@@ -1644,7 +1688,7 @@ def test_noop_employee_update_does_not_create_audit_event(client: TestClient) ->
 
     updated = client.patch(
         f"/api/v1/employees/{employee_id}",
-        json={"employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
+        json={"expected_version": created.json()["version"], "employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
     )
     assert updated.status_code == 200
     assert updated.json()["employee_number"] == "NOOP-EMP-001"
