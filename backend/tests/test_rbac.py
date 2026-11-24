@@ -125,7 +125,8 @@ def test_editor_role_matrix_allows_operational_writes_but_not_admin_actions(clie
         json={"expected_version": license_record["record_version"], "seats_used": 3},
     ).status_code == 200
     assert client.patch(
-        f"/api/v1/maintenance-requests/{maintenance['id']}", json={"title": "Editor updated"}
+        f"/api/v1/maintenance-requests/{maintenance['id']}",
+        json={"expected_version": maintenance["version"], "title": "Editor updated"},
     ).status_code == 200
     assert client.patch(
         f"/api/v1/employees/{employee['id']}", json={"job_title": "Editor-managed"}
