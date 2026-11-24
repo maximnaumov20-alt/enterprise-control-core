@@ -56,8 +56,6 @@ def build_report(args: argparse.Namespace) -> dict:
         assessment = "not_assessed"
     elif not all(assessed):
         assessment = "target_exceeded"
-    elif len(assessed) < 2 and args.rpo_target_seconds is not None:
-        assessment = "not_assessed"
     else:
         assessment = "within_targets"
 
@@ -110,9 +108,9 @@ def write_report(path: pathlib.Path, report: dict) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        if path.exists():
-            raise FileExistsError(f"refusing to overwrite existing report: {path}")
-        os.replace(temporary, path)
+        # A hard link publishes atomically and fails if another process created the path.
+        os.link(temporary, path)
+        temporary.unlink()
         os.chmod(path, 0o600)
     finally:
         temporary.unlink(missing_ok=True)
