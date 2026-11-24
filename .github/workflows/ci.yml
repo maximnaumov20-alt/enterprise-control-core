@@ -92,9 +92,6 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -553,9 +550,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  archive-recovery-evidence:
+    needs: docker-build
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.docker-build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download recovery drill evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: ecc-recovery-drill-${{ github.run_id }}
+          path: /tmp/ecc-recovery-reports
+
       - name: Check optional recovery archive configuration
         id: recovery-archive-config
-        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         env:
           ROLE_ARN: ${{ secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN }}
           ARCHIVE_BUCKET: ${{ vars.ECC_RECOVERY_ARCHIVE_BUCKET }}
@@ -569,7 +582,7 @@ jobs:
           fi
 
       - name: Configure optional recovery archive credentials
-        if: ${{ always() && steps.recovery-archive-config.outputs.enabled == 'true' }}
+        if: ${{ steps.recovery-archive-config.outputs.enabled == 'true' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN }}
@@ -577,7 +590,7 @@ jobs:
           role-session-name: ecc-recovery-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Archive recovery evidence to S3
-        if: ${{ always() && steps.recovery-archive-config.outputs.enabled == 'true' }}
+        if: ${{ steps.recovery-archive-config.outputs.enabled == 'true' }}
         env:
           ARCHIVE_BUCKET: ${{ vars.ECC_RECOVERY_ARCHIVE_BUCKET }}
         run: |
@@ -585,8 +598,8 @@ jobs:
           metadata="/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.metadata.json"
           history="/tmp/ecc-recovery-reports/history.md"
           if [[ ! -s "$report" || ! -s "$metadata" || ! -s "$history" ]]; then
-            echo "Recovery evidence is incomplete; optional S3 archive was skipped."
-            exit 0
+            echo "Recovery evidence is incomplete; refusing to publish a partial archive."
+            exit 1
           fi
           aws --version
           python scripts/archive-recovery-reports-s3.py \
@@ -596,6 +609,7 @@ jobs:
             --file "$report" \
             --file "$metadata" \
             --file "$history"
+
 
   shell-validation:
     runs-on: ubuntu-latest
