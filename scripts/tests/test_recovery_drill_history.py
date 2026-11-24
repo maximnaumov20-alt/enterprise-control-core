@@ -13,17 +13,36 @@ SCRIPT = ROOT / "scripts" / "recovery-drill-history.py"
 
 
 def report(generated: str, rto: int, rpo: int | None) -> dict:
+    from datetime import datetime, timedelta
+
+    completed = datetime.fromisoformat(generated)
+    incident = completed - timedelta(seconds=rto)
+    started = completed - timedelta(seconds=60)
+    committed = incident - timedelta(seconds=rpo) if rpo is not None else None
     return {
         "schema_version": 1,
         "report_type": "ecc_recovery_drill",
         "generated_at": generated,
         "backup_reference": "test-backup",
+        "timestamps": {
+            "incident_at": incident.isoformat(),
+            "restore_started_at": started.isoformat(),
+            "restore_completed_at": completed.isoformat(),
+            "last_recoverable_commit_at": committed.isoformat() if committed else None,
+        },
         "measurements_seconds": {
             "observed_rto": rto,
-            "restore_execution": rto - 60,
+            "restore_execution": 60,
             "observed_rpo": rpo,
         },
+        "targets_seconds": {"rto": None, "rpo": None},
+        "target_met": {"rto": None, "rpo": None},
         "assessment": "not_assessed",
+        "measurement_notes": {
+            "rto": "Incident declaration to verified restore completion.",
+            "rpo": "Requires a trustworthy transaction timestamp.",
+            "missing_rpo": "RPO was not measured." if rpo is None else None,
+        },
     }
 
 
