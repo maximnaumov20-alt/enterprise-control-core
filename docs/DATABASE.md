@@ -150,7 +150,7 @@ The CI workflow can optionally archive the recovery JSON report, adjacent run me
 - Repository Actions variable `ECC_RECOVERY_ARCHIVE_BUCKET`: destination bucket name, without an `s3://` prefix.
 - Repository Actions variable `ECC_AWS_REGION`: bucket region.
 
-Configure the role trust policy to restrict the GitHub OIDC subject to this repository and the intended branch/workflow. The job requests an OIDC token only in the Docker/recovery-drill job and only the `main` push path attempts the archive. Do not create long-lived AWS access keys or put credentials in repository files.
+Configure the role trust policy to restrict the GitHub OIDC subject to this repository and the intended branch/workflow. A separate archive job runs only after the Docker recovery-drill job succeeds on a `main` push. Only that dedicated job receives `id-token: write`; pull-request and ordinary CI jobs do not receive AWS OIDC permissions. Do not create long-lived AWS access keys or put credentials in repository files.
 
 Grant the role only the required object permissions scoped to the `ecc/recovery-drills/*` prefix: `s3:PutObject`, `s3:HeadObject` and `s3:GetObject`. If the bucket policy requires a specific server-side encryption mode or KMS key, configure the bucket and role policy accordingly before enabling the workflow.
 
