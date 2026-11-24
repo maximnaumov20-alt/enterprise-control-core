@@ -1677,7 +1677,7 @@ def test_employee_update_integrity_error_rolls_back_without_audit(
 def test_noop_employee_update_does_not_create_audit_event(client: TestClient) -> None:
     created = client.post(
         "/api/v1/employees",
-        json={"expected_version": created.json()["version"], "employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
+        json={"employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
     )
     assert created.status_code == 201
     employee_id = created.json()["id"]
