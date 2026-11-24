@@ -274,6 +274,67 @@ jobs:
             -d "{\"expected_version\":$employee_version,\"job_title\":\"CI Systems Engineer\"}" \
             "http://localhost:5173/api/v1/employees/$employee_id"
 
+          # Verify PostgreSQL optimistic locking for every versioned entity.
+          docker compose exec -T api python - <<'PY'
+          from sqlalchemy import select
+          from sqlalchemy.orm.exc import StaleDataError
+          from app.main import (
+              Asset, Department, Employee, MaintenanceRequest, SessionLocal,
+              SoftwareLicense, User,
+          )
+
+          cases = (
+              (Asset, "name", "PostgreSQL asset first writer", "version"),
+              (SoftwareLicense, "name", "PostgreSQL license first writer", "record_version"),
+              (MaintenanceRequest, "title", "PostgreSQL maintenance first writer", "version"),
+              (Department, "name", "PostgreSQL department first writer", "version"),
+              (Employee, "full_name", "PostgreSQL employee first writer", "version"),
+              (User, "full_name", "PostgreSQL user first writer", "version"),
+          )
+
+          with SessionLocal() as lookup:
+              organization_id = lookup.scalar(select(User.organization_id).order_by(User.id))
+              assert organization_id is not None
+
+          for model, field, winning_value, version_field in cases:
+              first = SessionLocal()
+              second = SessionLocal()
+              try:
+                  statement = (
+                      select(model)
+                      .where(model.organization_id == organization_id)
+                      .order_by(model.id)
+                  )
+                  first_row = first.scalars(statement).first()
+                  second_row = second.scalars(statement).first()
+                  assert first_row is not None and second_row is not None, model.__name__
+                  row_id = first_row.id
+                  assert getattr(first_row, version_field) == getattr(second_row, version_field)
+
+                  setattr(first_row, field, winning_value)
+                  first.commit()
+                  winning_version = getattr(first_row, version_field)
+
+                  setattr(second_row, field, "Stale concurrent overwrite")
+                  try:
+                      second.commit()
+                  except StaleDataError:
+                      second.rollback()
+                  else:
+                      raise AssertionError(
+                          f"PostgreSQL accepted a stale {model.__name__} update"
+                      )
+
+                  with SessionLocal() as verify:
+                      stored = verify.get(model, row_id)
+                      assert stored is not None
+                      assert getattr(stored, field) == winning_value
+                      assert getattr(stored, version_field) == winning_version
+              finally:
+                  first.close()
+                  second.close()
+          PY
+
           # Exercise the real PostgreSQL backup and restore scripts against CI data.
           backup_asset=$(curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
