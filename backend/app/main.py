@@ -736,6 +736,15 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def disable_api_response_caching(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @app.get("/health", tags=["system"])
 def health():
     return {"status": "ok", "service": "enterprise-control-center-api"}
