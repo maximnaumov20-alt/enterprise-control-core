@@ -82,6 +82,7 @@ export default function App() {
   const [softwareLicenses, setSoftwareLicenses] = useState<SoftwareLicense[]>([]);
   const [softwareForm, setSoftwareForm] = useState<SoftwareLicenseInput>(emptySoftwareForm);
   const [editingSoftwareId, setEditingSoftwareId] = useState<number | null>(null);
+  const [editingSoftwareVersion, setEditingSoftwareVersion] = useState<number | null>(null);
   const [softwareSaving, setSoftwareSaving] = useState(false);
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -265,6 +266,7 @@ export default function App() {
 
   function beginSoftwareEdit(item: SoftwareLicense) {
     setEditingSoftwareId(item.id);
+    setEditingSoftwareVersion(item.record_version);
     setSoftwareForm({
       name: item.name,
       publisher: item.publisher || "",
@@ -294,8 +296,9 @@ export default function App() {
         notes: softwareForm.notes?.trim() || null
       };
       if (editingSoftwareId === null) await api.createSoftwareLicense(payload);
-      else await api.updateSoftwareLicense(editingSoftwareId, payload);
+      else if (editingSoftwareVersion !== null) await api.updateSoftwareLicense(editingSoftwareId, { ...payload, expected_version: editingSoftwareVersion });
       setEditingSoftwareId(null);
+      setEditingSoftwareVersion(null);
       setSoftwareForm(emptySoftwareForm);
       setSoftwareLicenses(await api.softwareLicenses());
     } catch (e) {
@@ -595,7 +598,7 @@ export default function App() {
         <div className="page-heading"><div><div className="eyebrow">УЧЁТ ПРОГРАММНОГО ОБЕСПЕЧЕНИЯ</div><h1>Лицензии ПО</h1><p>Реестр договоров, типов лицензий и количества мест</p></div></div>
         {error && <div className="alert">{error}</div>}
         {currentUser.role !== "viewer" && <section className="panel">
-          <div className="panel-heading"><div><h2>{editingSoftwareId === null ? "Добавить лицензию" : "Редактировать лицензию"}</h2><p>Не вводите ключи активации. Храните только внешний номер договора или заказа.</p></div>{editingSoftwareId !== null && <button className="subtle" onClick={() => { setEditingSoftwareId(null); setSoftwareForm(emptySoftwareForm); }}>Отмена</button>}</div>
+          <div className="panel-heading"><div><h2>{editingSoftwareId === null ? "Добавить лицензию" : "Редактировать лицензию"}</h2><p>Не вводите ключи активации. Храните только внешний номер договора или заказа.</p></div>{editingSoftwareId !== null && <button className="subtle" onClick={() => { setEditingSoftwareId(null); setEditingSoftwareVersion(null); setSoftwareForm(emptySoftwareForm); }}>Отмена</button>}</div>
           <form onSubmit={submitSoftware}>
             <div className="form-grid user-form-grid">
               <label>Название ПО *<input required maxLength={160} value={softwareForm.name} onChange={e => setSoftwareForm({ ...softwareForm, name: e.target.value })} /></label>
