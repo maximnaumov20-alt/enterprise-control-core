@@ -16,7 +16,7 @@ SCRIPT = ROOT / "archive-recovery-reports-s3.py"
 
 def make_fake_aws(directory: pathlib.Path) -> pathlib.Path:
     executable = directory / "aws"
-    executable.write_text(textwrap.dedent(r"""\
+    executable.write_text(textwrap.dedent("""\
         #!/usr/bin/env python3
         import hashlib
         import json
