@@ -254,7 +254,7 @@ jobs:
           maintenance_version=$(printf '%s' "$maintenance" | python -c 'import json,sys; print(json.load(sys.stdin)["version"])')
           curl --fail --silent --show-error -X PATCH \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
-            -d "{\\"expected_version\\":$maintenance_version,\\"status\\":\\"resolved\\"}" \
+            -d "{\"expected_version\":$maintenance_version,\"status\":\"resolved\"}" \
             "http://localhost:5173/api/v1/maintenance-requests/$maintenance_id"
 
           department=$(curl --fail --silent --show-error -X POST \
