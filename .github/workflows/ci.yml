@@ -241,6 +241,98 @@ jobs:
               second.close()
           PY
 
+          # Verify PostgreSQL optimistic locking for every versioned entity.
+          docker compose exec -T api python - "$asset_id" <<'PY'
+          import sys
+          from sqlalchemy import select
+          from sqlalchemy.orm.exc import StaleDataError
+          from app.main import (
+              Asset, Department, Employee, MaintenanceRequest, MaintenancePriority,
+              MaintenanceStatus, SessionLocal, SoftwareLicense, SoftwareLicenseType, User,
+          )
+
+          asset_id = int(sys.argv[1])
+          with SessionLocal() as setup:
+              asset = setup.get(Asset, asset_id)
+              assert asset is not None
+              user = setup.scalar(
+                  select(User).where(User.organization_id == asset.organization_id).limit(1)
+              )
+              assert user is not None
+              department = Department(
+                  organization_id=asset.organization_id,
+                  name="PostgreSQL concurrency department",
+                  code="PG-CONCURRENCY",
+              )
+              license_record = SoftwareLicense(
+                  organization_id=asset.organization_id,
+                  name="PostgreSQL concurrency license",
+                  license_type=SoftwareLicenseType.subscription,
+                  seats_total=5,
+                  seats_used=1,
+              )
+              setup.add_all([department, license_record])
+              setup.flush()
+              employee = Employee(
+                  organization_id=asset.organization_id,
+                  employee_number="PG-CONCURRENCY-EMP",
+                  full_name="Original PostgreSQL Employee",
+                  email="pg-concurrency-employee@example.com",
+                  department_id=department.id,
+              )
+              request = MaintenanceRequest(
+                  organization_id=asset.organization_id,
+                  asset_id=asset.id,
+                  requested_by_user_id=user.id,
+                  title="Original PostgreSQL request",
+                  description="PostgreSQL concurrent-write integration check",
+                  priority=MaintenancePriority.normal,
+                  status=MaintenanceStatus.open,
+              )
+              setup.add_all([employee, request])
+              setup.commit()
+              entities = [
+                  (Asset, asset.id, "name", "PostgreSQL asset first writer"),
+                  (SoftwareLicense, license_record.id, "name", "PostgreSQL license first writer"),
+                  (MaintenanceRequest, request.id, "title", "PostgreSQL request first writer"),
+                  (Department, department.id, "name", "PostgreSQL department first writer"),
+                  (Employee, employee.id, "full_name", "PostgreSQL employee first writer"),
+                  (User, user.id, "full_name", "PostgreSQL user first writer"),
+              ]
+
+          for model, entity_id, field, winning_value in entities:
+              first = SessionLocal()
+              second = SessionLocal()
+              try:
+                  first_copy = first.get(model, entity_id)
+                  second_copy = second.get(model, entity_id)
+                  assert first_copy is not None and second_copy is not None
+                  version_field = "record_version" if hasattr(first_copy, "record_version") else "version"
+                  assert getattr(first_copy, version_field) == getattr(second_copy, version_field)
+
+                  setattr(first_copy, field, winning_value)
+                  first.commit()
+
+                  setattr(second_copy, field, "Stale PostgreSQL overwrite")
+                  try:
+                      second.commit()
+                  except StaleDataError:
+                      second.rollback()
+                  else:
+                      raise AssertionError(
+                          f"PostgreSQL accepted a stale concurrent update for {model.__name__}"
+                      )
+
+                  with SessionLocal() as verify:
+                      stored = verify.get(model, entity_id)
+                      assert stored is not None
+                      assert getattr(stored, field) == winning_value
+                      assert getattr(stored, version_field) == getattr(first_copy, version_field)
+              finally:
+                  first.close()
+                  second.close()
+          PY
+
           curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
             -d '{"name":"CI software","license_type":"subscription","seats_total":10,"seats_used":2}' \
