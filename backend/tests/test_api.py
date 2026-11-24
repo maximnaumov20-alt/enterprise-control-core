@@ -490,7 +490,13 @@ def test_asset_csv_import_row_audit_failure_rolls_back_only_failed_row(
     assert {
         event["details"]["asset_tag"] for event in row_events
     } == {"CSV-ROW-AUDIT-OK-001", "CSV-ROW-AUDIT-OK-003"}
-    assert len([event for event in imported_events if event["entity_type"] == "asset_import"]) == 1
+    batch_events = [event for event in imported_events if event["entity_type"] == "asset_import"]
+    assert len(batch_events) == 1
+    assert batch_events[0]["details"] == {
+        "created": 2,
+        "skipped": 1,
+        "error_count": 1,
+    }
 
 
 
