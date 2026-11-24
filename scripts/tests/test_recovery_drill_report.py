@@ -71,13 +71,9 @@ class RecoveryDrillReportTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_rejects_naive_timestamps(self) -> None:
-        result = subprocess.run(
-            ["python", str(SCRIPT), "--incident-at", "2026-11-24T10:00:00",
-             "--help"],
-            cwd=ROOT, text=True, capture_output=True, check=False,
-        )
-        # argparse help exits before parsing the timestamp; exercise the real parser separately.
-        self.assertEqual(result.returncode, 0)
+        result = self.run_report("--incident-at", "2026-11-24T10:00:00")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
 
     def test_rejects_last_commit_after_incident(self) -> None:
         result = self.run_report("--last-committed-at", "2026-11-24T10:01:00Z")
