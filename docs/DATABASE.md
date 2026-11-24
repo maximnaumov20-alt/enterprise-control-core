@@ -142,6 +142,22 @@ RTO is measured from incident declaration to verified restore completion. RPO is
 
 The report is an evidence record, not a compliance certification. It does not prove the accuracy of supplied timestamps, continuous service availability, backup integrity, or successful application-level validation. Store reports in an access-controlled location and retain the logs and test evidence used to produce them.
 
+### Optional long-term S3 archive for CI recovery evidence
+
+The CI workflow can optionally archive the recovery JSON report, adjacent run metadata and Markdown history to an operator-managed S3 bucket after a successful `main` push. This is separate from the 30-day GitHub Actions artifact and is disabled unless all three GitHub settings are configured:
+
+- Repository Actions secret `ECC_RECOVERY_ARCHIVE_ROLE_ARN`: IAM role ARN trusted for GitHub Actions OIDC.
+- Repository Actions variable `ECC_RECOVERY_ARCHIVE_BUCKET`: destination bucket name, without an `s3://` prefix.
+- Repository Actions variable `ECC_AWS_REGION`: bucket region.
+
+Configure the role trust policy to restrict the GitHub OIDC subject to this repository and the intended branch/workflow. The job requests an OIDC token only in the Docker/recovery-drill job and only the `main` push path attempts the archive. Do not create long-lived AWS access keys or put credentials in repository files.
+
+Grant the role only the required object permissions scoped to the `ecc/recovery-drills/*` prefix: `s3:PutObject`, `s3:HeadObject` and `s3:GetObject`. If the bucket policy requires a specific server-side encryption mode or KMS key, configure the bucket and role policy accordingly before enabling the workflow.
+
+Objects are grouped under `ecc/recovery-drills/<run-id>/<run-attempt>/`. The archiver uploads each supplied file with SHA-256 metadata, checks remote metadata and byte size, downloads it again and compares the actual bytes with the local file. The script is also tested offline with a fake AWS CLI; those tests do not contact AWS.
+
+This is an optional evidence copy, not a production backup service. The archiver does not configure bucket versioning, lifecycle retention, Object Lock, replication, alerting or recovery of the AWS role. Configure and independently verify those controls in the AWS account. In particular, use bucket versioning and an appropriate retention/Object Lock policy if immutable evidence is required. The workflow does not claim durable retention merely because an upload succeeded. If the settings are absent, the normal CI artifact remains available for its configured 30-day retention only.
+
 ## Restore
 
 Restore replaces database objects in the configured `ecc` database. Stop application writes first, confirm the Compose project points to the intended environment and preserve a separate backup of the current database.
