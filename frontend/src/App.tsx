@@ -193,7 +193,11 @@ export default function App() {
         phone: employeeForm.phone?.trim() || null
       };
       if (editingEmployeeId === null) await api.createEmployee(payload);
-      else await api.updateEmployee(editingEmployeeId, payload);
+      else {
+        const employee = employees.find(item => item.id === editingEmployeeId);
+        if (!employee) throw new Error("Сотрудник не найден. Обновите список и повторите попытку.");
+        await api.updateEmployee(editingEmployeeId, { ...payload, expected_version: employee.version });
+      }
       setEditingEmployeeId(null);
       setEmployeeForm(emptyEmployeeForm);
       setEmployees(await api.employees());
@@ -218,7 +222,7 @@ export default function App() {
 
   async function toggleEmployee(employee: Employee) {
     try {
-      await api.updateEmployee(employee.id, { is_active: !employee.is_active });
+      await api.updateEmployee(employee.id, { expected_version: employee.version, is_active: !employee.is_active });
       setEmployees(await api.employees());
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось изменить статус сотрудника"); }
   }
