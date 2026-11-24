@@ -92,6 +92,9 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -550,6 +553,35 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      - name: Configure optional recovery archive credentials
+        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN != '' && vars.ECC_RECOVERY_ARCHIVE_BUCKET != '' && vars.ECC_AWS_REGION != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN }}
+          aws-region: ${{ vars.ECC_AWS_REGION }}
+          role-session-name: ecc-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Archive recovery evidence to S3
+        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN != '' && vars.ECC_RECOVERY_ARCHIVE_BUCKET != '' && vars.ECC_AWS_REGION != '' }}
+        env:
+          ARCHIVE_BUCKET: ${{ vars.ECC_RECOVERY_ARCHIVE_BUCKET }}
+        run: |
+          report="/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json"
+          metadata="/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.metadata.json"
+          history="/tmp/ecc-recovery-reports/history.md"
+          if [[ ! -s "$report" || ! -s "$metadata" || ! -s "$history" ]]; then
+            echo "Recovery evidence is incomplete; optional S3 archive was skipped."
+            exit 0
+          fi
+          aws --version
+          python scripts/archive-recovery-reports-s3.py \
+            --destination "s3://$ARCHIVE_BUCKET/ecc/recovery-drills" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --file "$report" \
+            --file "$metadata" \
+            --file "$history"
+
   shell-validation:
     runs-on: ubuntu-latest
     steps:
@@ -583,3 +615,4 @@ jobs:
           python scripts/tests/test_recovery_drill_report.py
           python scripts/tests/test_validate_recovery_report.py
           python scripts/tests/test_recovery_drill_history.py
+          python scripts/tests/test_archive_recovery_reports_s3.py
