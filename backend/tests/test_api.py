@@ -2444,3 +2444,122 @@ def test_user_optimistic_locking_rejects_a_real_concurrent_write() -> None:
     finally:
         Base.metadata.drop_all(bind=test_engine)
         test_engine.dispose()
+
+
+
+def test_all_versioned_entities_reject_real_concurrent_writes() -> None:
+    from sqlalchemy.orm.exc import StaleDataError
+
+    test_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=test_engine, autoflush=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=test_engine)
+    try:
+        with TestingSessionLocal() as setup_session:
+            organization = Organization(name="All Models Concurrency")
+            setup_session.add(organization)
+            setup_session.flush()
+
+            user = User(
+                organization_id=organization.id,
+                email="all-models-admin@example.com",
+                full_name="Original User",
+                password_hash=password_hash.hash("all-models-test-password-123"),
+                role=UserRole.admin,
+            )
+            asset = main.Asset(
+                organization_id=organization.id,
+                name="Original Asset",
+                asset_tag="CONCURRENT-ASSET-001",
+                category="Laptop",
+            )
+            setup_session.add_all([user, asset])
+            setup_session.flush()
+
+            entities = [
+                (asset, "name", "Updated Asset"),
+                (
+                    main.SoftwareLicense(
+                        organization_id=organization.id,
+                        name="Original License",
+                        license_type=main.SoftwareLicenseType.subscription,
+                        seats_total=10,
+                        seats_used=1,
+                    ),
+                    "name",
+                    "Updated License",
+                ),
+                (
+                    main.MaintenanceRequest(
+                        organization_id=organization.id,
+                        asset_id=asset.id,
+                        requested_by_user_id=user.id,
+                        title="Original Request",
+                        description="Concurrency test request",
+                        priority=main.MaintenancePriority.normal,
+                        status=main.MaintenanceStatus.open,
+                    ),
+                    "title",
+                    "Updated Request",
+                ),
+                (
+                    main.Department(
+                        organization_id=organization.id,
+                        name="Original Department",
+                        code="CONCURRENT-DEPT",
+                    ),
+                    "name",
+                    "Updated Department",
+                ),
+                (
+                    main.Employee(
+                        organization_id=organization.id,
+                        employee_number="CONCURRENT-EMP-001",
+                        full_name="Original Employee",
+                        email="concurrent.employee@example.com",
+                        organization_id=organization.id,
+                    ),
+                    "full_name",
+                    "Updated Employee",
+                ),
+                (user, "full_name", "Updated User"),
+            ]
+            setup_session.add_all([entity for entity, _, _ in entities[1:]])
+            setup_session.commit()
+            entity_ids = [
+                (type(entity), entity.id, field, new_value)
+                for entity, field, new_value in entities
+            ]
+
+        for model, entity_id, field, new_value in entity_ids:
+            with TestingSessionLocal() as first_session, TestingSessionLocal() as second_session:
+                first_copy = first_session.get(model, entity_id)
+                second_copy = second_session.get(model, entity_id)
+                assert first_copy is not None
+                assert second_copy is not None
+
+                first_version = getattr(first_copy, "record_version", None)
+                version_field = "record_version" if first_version is not None else "version"
+                assert getattr(first_copy, version_field) == getattr(second_copy, version_field) == 1
+
+                setattr(first_copy, field, new_value)
+                first_session.commit()
+
+                setattr(second_copy, field, f"Stale {new_value}")
+                with pytest.raises(StaleDataError):
+                    second_session.commit()
+                second_session.rollback()
+
+            with TestingSessionLocal() as verify_session:
+                stored = verify_session.get(model, entity_id)
+                assert stored is not None
+                assert getattr(stored, field) == new_value
+                assert getattr(stored, version_field) == 2
+    finally:
+        Base.metadata.drop_all(bind=test_engine)
+        test_engine.dispose()
