@@ -263,10 +263,16 @@ jobs:
             http://localhost:5173/api/v1/departments)
           department_id=$(printf '%s' "$department" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 
-          curl --fail --silent --show-error -X POST \
+          employee=$(curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
             -d "{\"employee_number\":\"CI-EMP-001\",\"full_name\":\"CI Employee\",\"department_id\":$department_id,\"email\":\"ci.employee@example.com\"}" \
-            http://localhost:5173/api/v1/employees
+            http://localhost:5173/api/v1/employees)
+          employee_id=$(printf '%s' "$employee" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          employee_version=$(printf '%s' "$employee" | python -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          curl --fail --silent --show-error -X PATCH \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
+            -d "{\"expected_version\":$employee_version,\"job_title\":\"CI Systems Engineer\"}" \
+            "http://localhost:5173/api/v1/employees/$employee_id"
 
           # Exercise the real PostgreSQL backup and restore scripts against CI data.
           backup_asset=$(curl --fail --silent --show-error -X POST \
