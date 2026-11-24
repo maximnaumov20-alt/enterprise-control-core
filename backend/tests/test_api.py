@@ -1688,7 +1688,7 @@ def test_noop_employee_update_does_not_create_audit_event(client: TestClient) ->
 
     updated = client.patch(
         f"/api/v1/employees/{employee_id}",
-        json={"employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
+        json={"expected_version": created.json()["version"], "employee_number": "NOOP-EMP-001", "full_name": "No-op Employee"},
     )
     assert updated.status_code == 200
     assert updated.json()["employee_number"] == "NOOP-EMP-001"
