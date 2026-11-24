@@ -252,7 +252,7 @@ export default function App() {
   async function changeMaintenanceStatus(item: MaintenanceRequest, nextStatus: MaintenanceStatus) {
     setError("");
     try {
-      await api.updateMaintenanceRequest(item.id, { status: nextStatus });
+      await api.updateMaintenanceRequest(item.id, { expected_version: item.version, status: nextStatus });
       setMaintenanceRequests(await api.maintenanceRequests());
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось обновить заявку"); }
   }
