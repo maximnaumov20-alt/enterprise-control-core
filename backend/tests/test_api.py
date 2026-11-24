@@ -749,20 +749,30 @@ def test_maintenance_request_creation_assignment_and_resolution(client: TestClie
     )
     assert created.status_code == 201
     request_id = created.json()["id"]
+    request_version = created.json()["version"]
+    assert request_version == 1
     assert created.json()["requested_by_user_id"] == viewer["id"]
     assert len(client.get("/api/v1/maintenance-requests").json()) == 1
 
     use_role(client, "editor")
     assigned = client.patch(
         f"/api/v1/maintenance-requests/{request_id}",
-        json={"assigned_to_user_id": editor["id"], "status": "in_progress"},
+        json={"expected_version": request_version, "assigned_to_user_id": editor["id"], "status": "in_progress"},
     )
     assert assigned.status_code == 200
     assert assigned.json()["assigned_to_user_id"] == editor["id"]
+    assert assigned.json()["version"] == request_version + 1
+
+    stale = client.patch(
+        f"/api/v1/maintenance-requests/{request_id}",
+        json={"expected_version": request_version, "status": "cancelled"},
+    )
+    assert stale.status_code == 409
+    assert client.get(f"/api/v1/maintenance-requests/{request_id}").json()["status"] == "in_progress"
 
     resolved = client.patch(
         f"/api/v1/maintenance-requests/{request_id}",
-        json={"status": "resolved"},
+        json={"expected_version": assigned.json()["version"], "status": "resolved"},
     )
     assert resolved.status_code == 200
     assert resolved.json()["resolved_at"] is not None
@@ -788,7 +798,7 @@ def test_maintenance_requests_are_private_to_requester_and_organization(client: 
     assert client.get(f"/api/v1/maintenance-requests/{request_id}").status_code == 404
     assert client.patch(
         f"/api/v1/maintenance-requests/{request_id}",
-        json={"status": "resolved"},
+        json={"expected_version": created.json()["version"], "status": "resolved"},
     ).status_code == 403
 
     use_role(client, "other_admin")
@@ -822,7 +832,7 @@ def test_maintenance_assignment_cannot_cross_organizations(client: TestClient) -
     use_role(client, "admin")
     response = client.patch(
         f"/api/v1/maintenance-requests/{request_record['id']}",
-        json={"assigned_to_user_id": other_id},
+        json={"expected_version": request_record["version"], "assigned_to_user_id": other_id},
     )
     assert response.status_code == 422
 
