@@ -306,6 +306,9 @@ class MaintenanceRequest(Base):
         nullable=False,
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __mapper_args__ = {"version_id_col": version}
 
 
 class SoftwareLicense(Base):
@@ -491,6 +494,7 @@ class MaintenanceRequestCreate(BaseModel):
 
 
 class MaintenanceRequestUpdate(BaseModel):
+    expected_version: int = Field(gt=0)
     title: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, min_length=1, max_length=4000)
     priority: MaintenancePriority | None = None
@@ -512,6 +516,7 @@ class MaintenanceRequestRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
+    version: int
 
 
 class SoftwareLicenseCreate(BaseModel):
@@ -1591,7 +1596,9 @@ def update_maintenance_request(
     ))
     if request_record is None:
         raise HTTPException(status_code=404, detail="Maintenance request not found")
-    changes = payload.model_dump(exclude_unset=True)
+    if payload.expected_version != request_record.version:
+        raise HTTPException(status_code=409, detail="Maintenance request has changed; reload it before updating")
+    changes = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
     for required_field in ("title", "description", "priority", "status"):
         if required_field in changes and changes[required_field] is None:
             raise HTTPException(status_code=422, detail=f"{required_field} cannot be null")
@@ -1634,11 +1641,11 @@ def update_maintenance_request(
                 request_record.id, {"fields": sorted(audit_fields)},
             )
             session.commit()
-        except IntegrityError:
+        except (IntegrityError, StaleDataError):
             session.rollback()
             raise HTTPException(
                 status_code=409,
-                detail="Maintenance request update conflicts with current organization records",
+                detail="Maintenance request update conflicts with current organization records or stale version",
             )
     session.refresh(request_record)
     return request_record
