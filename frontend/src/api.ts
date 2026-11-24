@@ -82,6 +82,7 @@ export interface MaintenanceRequest {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  version: number;
 }
 
 export interface MaintenanceRequestInput {
@@ -227,7 +228,7 @@ export const api = {
   maintenanceRequests: () => request<MaintenanceRequest[]>("/api/v1/maintenance-requests?limit=200"),
   createMaintenanceRequest: (item: MaintenanceRequestInput) =>
     request<MaintenanceRequest>("/api/v1/maintenance-requests", { method: "POST", body: JSON.stringify(item) }),
-  updateMaintenanceRequest: (id: number, changes: { status?: MaintenanceStatus; assigned_to_user_id?: number | null }) =>
+  updateMaintenanceRequest: (id: number, changes: { expected_version: number; status?: MaintenanceStatus; assigned_to_user_id?: number | null }) =>
     request<MaintenanceRequest>(`/api/v1/maintenance-requests/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
   softwareLicenses: () => request<SoftwareLicense[]>("/api/v1/software-licenses?limit=200"),
   createSoftwareLicense: (license: SoftwareLicenseInput) =>
