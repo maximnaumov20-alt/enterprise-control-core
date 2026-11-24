@@ -27,7 +27,7 @@
 - [ ] Structured logs and monitoring
 - [x] Baseline frontend security headers
 - [x] Login rate limiting with shared Redis counters
-- [ ] Additional API security headers and deployment hardening
+- [ ] Additional API security headers and deployment hardening (API responses now set `Cache-Control: no-store` and `Pragma: no-cache`; HTTPS, secrets management, network controls and remaining deployment hardening are still pending)
 - [x] Python and npm dependency vulnerability scanning in GitHub Actions (`pip-audit`, `npm audit`)
 - [x] Container image vulnerability scanning for unfixed critical vulnerabilities with Trivy
 - [x] Automated PostgreSQL integration coverage in Docker Compose CI (API smoke tests, tenant-backed records, and encrypted backup/restore recovery)
