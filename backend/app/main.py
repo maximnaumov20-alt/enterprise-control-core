@@ -185,6 +185,9 @@ class Employee(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __mapper_args__ = {"version_id_col": version}
 
 
 class Organization(Base):
@@ -464,6 +467,7 @@ class EmployeeCreate(BaseModel):
 
 
 class EmployeeUpdate(BaseModel):
+    expected_version: int = Field(gt=0)
     employee_number: str | None = Field(default=None, min_length=1, max_length=40)
     full_name: str | None = Field(default=None, min_length=1, max_length=160)
     department_id: int | None = Field(default=None, gt=0)
@@ -484,6 +488,7 @@ class EmployeeRead(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    version: int
 
 
 class MaintenanceRequestCreate(BaseModel):
@@ -1429,7 +1434,9 @@ def update_employee(
     ))
     if employee is None:
         raise HTTPException(status_code=404, detail="Employee not found")
-    changes = payload.model_dump(exclude_unset=True)
+    if payload.expected_version != employee.version:
+        raise HTTPException(status_code=409, detail="Employee has changed; reload it before updating")
+    changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
     for field in ("employee_number", "full_name", "is_active"):
         if field in changes and changes[field] is None:
             raise HTTPException(status_code=422, detail=f"{field} cannot be null")
@@ -1456,11 +1463,11 @@ def update_employee(
             session.flush()
             record_audit(session, user, "employee.updated", "employee", employee.id, {"fields": sorted(changes)})
             session.commit()
-        except IntegrityError:
+        except (IntegrityError, StaleDataError):
             session.rollback()
             raise HTTPException(
                 status_code=409,
-                detail="Employee update conflicts with current organization records",
+                detail="Employee update conflicts with current organization records or stale version",
             )
     session.refresh(employee)
     return employee
