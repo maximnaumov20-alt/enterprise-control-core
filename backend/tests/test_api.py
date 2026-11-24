@@ -499,10 +499,10 @@ def test_asset_csv_import_unexpected_audit_error_rolls_back_entire_batch(
 ) -> None:
     failed_tag = "CSV-UNEXPECTED-ERROR-002"
     payload = (
-        "name,asset_tag,category\\n"
-        "First laptop,CSV-UNEXPECTED-ERROR-001,Laptop\\n"
-        "Failed laptop,CSV-UNEXPECTED-ERROR-002,Laptop\\n"
-        "Last laptop,CSV-UNEXPECTED-ERROR-003,Laptop\\n"
+        "name,asset_tag,category\n"
+        "First laptop,CSV-UNEXPECTED-ERROR-001,Laptop\n"
+        "Failed laptop,CSV-UNEXPECTED-ERROR-002,Laptop\n"
+        "Last laptop,CSV-UNEXPECTED-ERROR-003,Laptop\n"
     )
     existing_audit_ids = {
         event["id"] for event in client.get("/api/v1/audit-events").json()
