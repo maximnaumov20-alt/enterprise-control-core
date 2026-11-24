@@ -509,6 +509,7 @@ jobs:
             --restore-started-at "$drill_restore_started_at" \
             --restore-completed-at "$drill_restore_completed_at" \
             --output "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json"
+          python scripts/validate-recovery-report.py "/tmp/ecc-recovery-reports/drill-$GITHUB_RUN_ID.json"
           COMPOSE_PROJECT_NAME="$drill_project" docker compose down --volumes --remove-orphans
           trap - EXIT
 
@@ -555,3 +556,4 @@ jobs:
           python scripts/tests/test_run_backup.py
           python scripts/tests/test_download_backup_s3.py
           python scripts/tests/test_recovery_drill_report.py
+          python scripts/tests/test_validate_recovery_report.py
