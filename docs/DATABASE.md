@@ -138,7 +138,7 @@ python scripts/recovery-drill-report.py \
   --output ./recovery-reports/drill-2026-11-24.json
 ```
 
-RTO is measured from incident declaration to verified restore completion. RPO is measured only when the operator supplies a trustworthy timestamp for the last committed transaction before the incident. If that timestamp is unavailable, the report leaves RPO null and explicitly marks it as not measured; backup age is not silently substituted for data-loss measurement. Reports are written with owner-only permissions and existing reports are never overwritten.
+RTO is measured from incident declaration to verified restore completion. RPO is measured only when the operator supplies a trustworthy timestamp for the last transaction known to be recoverable in the restored dataset before the incident. If that timestamp is unavailable, the report leaves RPO null and explicitly marks it as not measured; backup age is not silently substituted for data-loss measurement. Reports are written with owner-only permissions and existing reports are never overwritten.
 
 The report is an evidence record, not a compliance certification. It does not prove the accuracy of supplied timestamps, continuous service availability, backup integrity, or successful application-level validation. Store reports in an access-controlled location and retain the logs and test evidence used to produce them.
 
