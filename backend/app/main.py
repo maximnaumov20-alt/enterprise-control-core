@@ -807,6 +807,7 @@ def get_me(user: CurrentUser, session: SessionDep):
         is_active=user.is_active,
         organization_id=user.organization_id,
         created_at=user.created_at,
+        version=user.version,
         organization_name=organization.name if organization else "",
     )
 
