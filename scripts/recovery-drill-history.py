@@ -51,6 +51,13 @@ def build_history(paths: list[pathlib.Path]) -> str:
         measurements = report.get("measurements_seconds")
         if not isinstance(measurements, dict):
             raise ValueError(f"measurements_seconds must be an object: {path}")
+        if "observed_rto" not in measurements or measurements["observed_rto"] is None:
+            raise ValueError(f"observed_rto is required and must be measured: {path}")
+        format_seconds(measurements["observed_rto"])
+        if measurements.get("observed_rpo") is not None:
+            format_seconds(measurements["observed_rpo"])
+        if not isinstance(report.get("assessment"), str) or not report["assessment"].strip():
+            raise ValueError(f"assessment must be a non-empty string: {path}")
         entries.append((report, context))
     entries.sort(key=lambda item: item[1]["generated"], reverse=True)
 
