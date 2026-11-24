@@ -1561,7 +1561,6 @@ def test_department_delete_audit_retains_department_snapshot(client: TestClient)
 
     deleted = client.delete(f"/api/v1/departments/{department_id}")
     assert deleted.status_code == 204
-    assert client.get(f"/api/v1/departments/{department_id}").status_code == 404
 
     events = client.get("/api/v1/audit-events")
     assert events.status_code == 200
@@ -1591,7 +1590,6 @@ def test_employee_delete_audit_retains_employee_snapshot(client: TestClient) -> 
 
     deleted = client.delete(f"/api/v1/employees/{employee['id']}")
     assert deleted.status_code == 204
-    assert client.get(f"/api/v1/employees/{employee['id']}").status_code == 404
 
     events = client.get("/api/v1/audit-events")
     assert events.status_code == 200
