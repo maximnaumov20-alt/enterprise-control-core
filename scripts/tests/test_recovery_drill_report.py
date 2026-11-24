@@ -37,7 +37,7 @@ class RecoveryDrillReportTests(unittest.TestCase):
 
     def test_reports_rto_rpo_and_targets_met(self) -> None:
         result = self.run_report(
-            "--last-committed-at", "2026-11-24T09:59:00Z",
+            "--last-recoverable-commit-at", "2026-11-24T09:59:00Z",
             "--rto-target-seconds", "1800",
             "--rpo-target-seconds", "120",
         )
@@ -76,7 +76,7 @@ class RecoveryDrillReportTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
 
     def test_rejects_last_commit_after_incident(self) -> None:
-        result = self.run_report("--last-committed-at", "2026-11-24T10:01:00Z")
+        result = self.run_report("--last-recoverable-commit-at", "2026-11-24T10:01:00Z")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.output.exists())
 
