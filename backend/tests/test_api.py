@@ -2106,15 +2106,22 @@ def test_employee_delete_persists_audit_snapshot(client: TestClient) -> None:
             "job_title": "Network Engineer",
             "email": "jordan.example@example.com",
             "phone": "+49-000-000000",
-            "is_active": False,
         },
     )
     assert created.status_code == 201
     employee = created.json()
+    deactivated = client.patch(
+        f"/api/v1/employees/{employee['id']}",
+        json={"expected_version": employee["version"], "is_active": False},
+    )
+    assert deactivated.status_code == 200
+    employee = deactivated.json()
 
     deleted = client.delete(f"/api/v1/employees/{employee['id']}")
     assert deleted.status_code == 204
-    assert client.get(f"/api/v1/employees/{employee['id']}").status_code == 404
+    remaining = client.get("/api/v1/employees")
+    assert remaining.status_code == 200
+    assert all(item["id"] != employee["id"] for item in remaining.json())
 
     events = client.get("/api/v1/audit-events").json()
     matching = [
