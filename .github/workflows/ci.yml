@@ -335,6 +335,65 @@ jobs:
                   second.close()
           PY
 
+          # Verify PostgreSQL rolls back business data and its audit event atomically.
+          docker compose exec -T api python - <<'PY'
+          from sqlalchemy import select
+          from sqlalchemy.exc import IntegrityError
+          from app.main import Asset, AuditEvent, SessionLocal, User
+
+          marker = "ci-postgres-rollback-audit-atomicity"
+          with SessionLocal() as lookup:
+              user = lookup.scalar(select(User).order_by(User.id))
+              assert user is not None
+              existing_asset = lookup.scalar(
+                  select(Asset)
+                  .where(Asset.organization_id == user.organization_id)
+                  .order_by(Asset.id)
+              )
+              assert existing_asset is not None
+
+          failed_asset_tag = "CI-ROLLBACK-ATOMIC-001"
+          with SessionLocal() as transaction:
+              transaction.add(Asset(
+                  organization_id=user.organization_id,
+                  name="Must be rolled back",
+                  asset_tag=failed_asset_tag,
+                  category="Server",
+              ))
+              transaction.add(AuditEvent(
+                  organization_id=user.organization_id,
+                  actor_user_id=user.id,
+                  action=marker,
+                  entity_type="asset",
+                  entity_id=failed_asset_tag,
+                  details={"test": "atomic rollback"},
+              ))
+              # A duplicate tenant-scoped asset tag forces the same transaction to fail.
+              transaction.add(Asset(
+                  organization_id=user.organization_id,
+                  name="Duplicate tag trigger",
+                  asset_tag=existing_asset.asset_tag,
+                  category="Server",
+              ))
+              try:
+                  transaction.commit()
+              except IntegrityError:
+                  transaction.rollback()
+              else:
+                  raise AssertionError("PostgreSQL accepted a duplicate tenant asset tag")
+
+          with SessionLocal() as verify:
+              assert verify.scalar(
+                  select(Asset.id).where(
+                      Asset.organization_id == user.organization_id,
+                      Asset.asset_tag == failed_asset_tag,
+                  )
+              ) is None, "Business row survived a failed PostgreSQL transaction"
+              assert verify.scalar(
+                  select(AuditEvent.id).where(AuditEvent.action == marker)
+              ) is None, "Audit event survived a failed PostgreSQL transaction"
+          PY
+
           # Exercise the real PostgreSQL backup and restore scripts against CI data.
           backup_asset=$(curl --fail --silent --show-error -X POST \
             -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
