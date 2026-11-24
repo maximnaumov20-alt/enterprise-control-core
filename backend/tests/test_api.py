@@ -2581,3 +2581,59 @@ def test_department_create_audit_failure_rolls_back_department(
     assert response.status_code == 409
     assert client.get("/api/v1/departments").json() == []
     assert client.get("/api/v1/audit-events").json() == existing_events
+
+
+def test_bulk_asset_update_audit_failure_rolls_back_all_assets(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created_assets = []
+    for index in range(2):
+        response = client.post(
+            "/api/v1/assets",
+            json={
+                "name": f"Atomic bulk asset {index}",
+                "asset_tag": f"BULK-ATOMIC-{index}",
+                "category": "Server",
+            },
+        )
+        assert response.status_code == 201
+        created_assets.append(response.json())
+
+    asset_ids = [asset["id"] for asset in created_assets]
+    versions = {asset["id"]: asset["version"] for asset in created_assets}
+    before_events = client.get("/api/v1/audit-events").json()
+    original_record_audit = main.record_audit
+    calls = 0
+
+    def fail_on_second_audit(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise IntegrityError(
+                "insert audit event", {}, Exception("simulated second audit failure")
+            )
+        return original_record_audit(*args, **kwargs)
+
+    monkeypatch.setattr(main, "record_audit", fail_on_second_audit)
+    response = client.patch(
+        "/api/v1/assets/bulk",
+        json={
+            "asset_ids": asset_ids,
+            "versions": versions,
+            "status": "in_repair",
+            "assigned_to": "Atomicity Test",
+        },
+    )
+
+    assert response.status_code == 409
+    assert calls == 2
+
+    for asset in created_assets:
+        current = client.get(f"/api/v1/assets/{asset['id']}").json()
+        assert current["status"] == "active"
+        assert current["assigned_to"] is None
+        assert current["version"] == asset["version"]
+        history = client.get(f"/api/v1/assets/{asset['id']}/history").json()
+        assert [event["action"] for event in history] == ["asset.created"]
+
+    assert client.get("/api/v1/audit-events").json() == before_events
