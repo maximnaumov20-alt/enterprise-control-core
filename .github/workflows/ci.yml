@@ -449,6 +449,59 @@ jobs:
             "SELECT action FROM audit_events WHERE id=$backup_audit_id")
           test "$restored_audit_action" = "asset.created"
 
+          # Download the encrypted object through a fake S3 endpoint, then restore it
+          # into a separate Compose project with its own PostgreSQL volume.
+          mkdir -p /tmp/ecc-fake-aws-bin /tmp/ecc-s3-restore-drill
+          cat > /tmp/ecc-fake-aws-bin/aws <<'PY'
+          #!/usr/bin/env python3
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          args = sys.argv[1:]
+          source = pathlib.Path(os.environ["ECC_FAKE_S3_SOURCE"])
+          payload = source.read_bytes()
+          if args[:2] == ["s3api", "head-object"]:
+              print(json.dumps({
+                  "Metadata": {"sha256": hashlib.sha256(payload).hexdigest()},
+                  "ContentLength": len(payload),
+              }))
+          elif args[:2] == ["s3", "cp"] and args[2].startswith("s3://"):
+              pathlib.Path(args[3]).write_bytes(payload)
+          else:
+              print("unexpected fake AWS invocation: " + repr(args), file=sys.stderr)
+              raise SystemExit(90)
+          PY
+          chmod 700 /tmp/ecc-fake-aws-bin/aws
+          ECC_FAKE_S3_SOURCE="$backup_file" PATH="/tmp/ecc-fake-aws-bin:$PATH" \
+            bash scripts/download-backup-s3.sh \
+            s3://ecc-ci-bucket/restore-drill/backup.dump.age \
+            /tmp/ecc-s3-restore-drill/backup.dump.age
+
+          drill_project="ecc-restore-drill"
+          trap 'COMPOSE_PROJECT_NAME="$drill_project" docker compose down --volumes --remove-orphans || true' EXIT
+          COMPOSE_PROJECT_NAME="$drill_project" docker compose up --detach db
+          for attempt in $(seq 1 30); do
+            if COMPOSE_PROJECT_NAME="$drill_project" docker compose exec -T db pg_isready -U ecc -d ecc; then
+              break
+            fi
+            sleep 2
+          done
+          COMPOSE_PROJECT_NAME="$drill_project" docker compose exec -T db pg_isready -U ecc -d ecc
+          COMPOSE_PROJECT_NAME="$drill_project" ECC_BACKUP_AGE_IDENTITY=/tmp/ecc-ci-age-identity.txt \
+            ECC_RESTORE_CONFIRM=YES bash scripts/restore-postgres.sh \
+            /tmp/ecc-s3-restore-drill/backup.dump.age
+          drill_restored_name=$(COMPOSE_PROJECT_NAME="$drill_project" docker compose exec -T db \
+            psql -U ecc -d ecc -Atqc "SELECT name FROM assets WHERE id=$backup_asset_id")
+          test "$drill_restored_name" = "Backup baseline"
+          drill_audit_action=$(COMPOSE_PROJECT_NAME="$drill_project" docker compose exec -T db \
+            psql -U ecc -d ecc -Atqc "SELECT action FROM audit_events WHERE id=$backup_audit_id")
+          test "$drill_audit_action" = "asset.created"
+          COMPOSE_PROJECT_NAME="$drill_project" docker compose down --volumes --remove-orphans
+          trap - EXIT
+
           docker compose exec -T api alembic current
           docker compose down --volumes
 
@@ -464,6 +517,7 @@ jobs:
           bash -n scripts/restore-postgres.sh
           bash -n scripts/upload-backup-s3.sh
           bash -n scripts/run-backup.sh
+          bash -n scripts/download-backup-s3.sh
           sh -n frontend/docker-entrypoint.d/30-configure-trusted-proxies.sh
 
       - name: Install ShellCheck
@@ -478,4 +532,6 @@ jobs:
         run: python scripts/tests/test_upload_backup_s3.py
 
       - name: Test encrypted backup-cycle orchestration
-        run: python scripts/tests/test_run_backup.py
+        run: |
+          python scripts/tests/test_run_backup.py
+          python scripts/tests/test_download_backup_s3.py
