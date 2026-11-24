@@ -221,9 +221,12 @@ class User(Base):
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
+    __mapper_args__ = {"version_id_col": version}
 
 
 class Asset(Base):
@@ -599,6 +602,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    expected_version: int = Field(gt=0)
     full_name: str | None = Field(default=None, min_length=1, max_length=160)
     role: UserRole | None = None
     is_active: bool | None = None
@@ -612,6 +616,7 @@ class UserRead(BaseModel):
     is_active: bool
     organization_id: int
     created_at: datetime
+    version: int
 
 
 class TokenRead(BaseModel):
@@ -802,6 +807,7 @@ def get_me(user: CurrentUser, session: SessionDep):
         is_active=user.is_active,
         organization_id=user.organization_id,
         created_at=user.created_at,
+        version=user.version,
         organization_name=organization.name if organization else "",
     )
 
@@ -854,7 +860,9 @@ def update_user(
     ))
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
-    changes = payload.model_dump(exclude_unset=True)
+    if payload.expected_version != target.version:
+        raise HTTPException(status_code=409, detail="User has changed; reload it before updating")
+    changes = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
     if not changes:
         return target
     for required_field in ("full_name", "role", "is_active"):
@@ -881,6 +889,9 @@ def update_user(
     try:
         record_audit(session, admin, "user.updated", "user", target.id, {"fields": sorted(changes)})
         session.commit()
+    except StaleDataError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="User has changed; reload it before updating")
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="User update conflicts with current organization records")

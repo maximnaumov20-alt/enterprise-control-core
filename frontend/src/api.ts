@@ -122,6 +122,7 @@ export interface ManagedUser {
   is_active: boolean;
   organization_id: number;
   created_at: string;
+  version: number;
 }
 
 export interface AuditEvent {
@@ -215,7 +216,7 @@ export const api = {
   users: () => request<ManagedUser[]>("/api/v1/users"),
   createUser: (user: { email: string; full_name: string; password: string; role: UserRole }) =>
     request<ManagedUser>("/api/v1/users", { method: "POST", body: JSON.stringify(user) }),
-  updateUser: (id: number, changes: { full_name?: string; role?: UserRole; is_active?: boolean }) =>
+  updateUser: (id: number, changes: { expected_version: number; full_name?: string; role?: UserRole; is_active?: boolean }) =>
     request<ManagedUser>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(changes) }),
   auditEvents: (limit = 100) => request<AuditEvent[]>(`/api/v1/audit-events?limit=${limit}`),
   departments: () => request<Department[]>("/api/v1/departments"),

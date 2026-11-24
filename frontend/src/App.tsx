@@ -348,7 +348,7 @@ export default function App() {
   async function changeUser(user: ManagedUser, changes: { role?: UserRole; is_active?: boolean }) {
     setError("");
     try {
-      await api.updateUser(user.id, changes);
+      await api.updateUser(user.id, { ...changes, expected_version: user.version });
       setUsers(await api.users());
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось обновить пользователя"); }
   }

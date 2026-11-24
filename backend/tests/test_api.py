@@ -574,7 +574,7 @@ def test_user_update_audit_integrity_conflict_rolls_back_changes(
     monkeypatch.setattr(main, "record_audit", fail_audit)
     response = client.patch(
         f"/api/v1/users/{target['id']}",
-        json={"full_name": "Should Not Persist"},
+        json={"expected_version": target["version"], "full_name": "Should Not Persist"},
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "User update conflicts with current organization records"
@@ -589,7 +589,7 @@ def test_admin_cannot_demote_own_account(client: TestClient) -> None:
     current = client.get("/api/v1/auth/me").json()
     response = client.patch(
         f"/api/v1/users/{current['id']}",
-        json={"role": "editor"},
+        json={"expected_version": current["version"], "role": "editor"},
     )
     assert response.status_code == 422
 
@@ -599,11 +599,34 @@ def test_deactivated_user_token_is_rejected(client: TestClient) -> None:
     editor = next(user for user in users if user["email"] == "editor.a@example.com")
     disabled = client.patch(
         f"/api/v1/users/{editor['id']}",
-        json={"is_active": False},
+        json={"expected_version": editor["version"], "is_active": False},
     )
     assert disabled.status_code == 200
     use_role(client, "editor")
     assert client.get("/api/v1/assets").status_code == 401
+
+
+def test_user_optimistic_locking_rejects_stale_updates_and_increments_version(client: TestClient) -> None:
+    target = next(user for user in client.get("/api/v1/users").json() if user["email"] == "editor.a@example.com")
+    first = client.patch(
+        f"/api/v1/users/{target['id']}",
+        json={"expected_version": target["version"], "full_name": "Updated Editor"},
+    )
+    assert first.status_code == 200
+    assert first.json()["version"] == target["version"] + 1
+
+    stale = client.patch(
+        f"/api/v1/users/{target['id']}",
+        json={"expected_version": target["version"], "full_name": "Stale overwrite"},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == "User has changed; reload it before updating"
+
+
+def test_user_update_requires_expected_version(client: TestClient) -> None:
+    target = next(user for user in client.get("/api/v1/users").json() if user["email"] == "editor.a@example.com")
+    response = client.patch(f"/api/v1/users/{target['id']}", json={"full_name": "Missing version"})
+    assert response.status_code == 422
 
 
 def test_user_listing_is_organization_scoped(client: TestClient) -> None:
@@ -969,12 +992,12 @@ def test_disabling_and_reenabling_user_revokes_old_access_token(client: TestClie
     editor_id = next(user["id"] for user in client.get("/api/v1/users").json() if user["email"] == "editor.a@example.com")
     response = client.patch(
         f"/api/v1/users/{editor_id}",
-        json={"is_active": False},
+        json={"expected_version": next(u["version"] for u in client.get("/api/v1/users").json() if u["id"] == editor_id), "is_active": False},
     )
     assert response.status_code == 200
     response = client.patch(
         f"/api/v1/users/{editor_id}",
-        json={"is_active": True},
+        json={"expected_version": response.json()["version"], "is_active": True},
     )
     assert response.status_code == 200
 
@@ -1146,14 +1169,14 @@ def test_admin_cannot_disable_or_demote_own_account(client: TestClient) -> None:
 
     disabled = client.patch(
         f"/api/v1/users/{current_id}",
-        json={"is_active": False},
+        json={"expected_version": client.get("/api/v1/auth/me").json()["version"], "is_active": False},
     )
     assert disabled.status_code == 422
     assert client.get("/api/v1/auth/me").status_code == 200
 
     demoted = client.patch(
         f"/api/v1/users/{current_id}",
-        json={"role": "editor"},
+        json={"expected_version": client.get("/api/v1/auth/me").json()["version"], "role": "editor"},
     )
     assert demoted.status_code == 422
     assert client.get("/api/v1/auth/me").status_code == 200
@@ -1166,7 +1189,7 @@ def test_admin_user_management_cannot_cross_tenant_or_assign_tenant(client: Test
     use_role(client, "admin")
     assert client.patch(
         f"/api/v1/users/{foreign_user_id}",
-        json={"full_name": "Cross-tenant takeover"},
+        json={"expected_version": 1, "full_name": "Cross-tenant takeover"},
     ).status_code == 404
 
     created = client.post(
@@ -1223,7 +1246,7 @@ def test_related_records_reject_foreign_departments_and_inactive_assignees(clien
     editor = next(user for user in users if user["email"] == "editor.a@example.com")
     deactivated = client.patch(
         f"/api/v1/users/{editor['id']}",
-        json={"is_active": False},
+        json={"expected_version": editor["version"], "is_active": False},
     )
     assert deactivated.status_code == 200
 
@@ -1267,7 +1290,7 @@ def test_unchanged_user_update_does_not_create_audit_event(client: TestClient) -
 
     response = client.patch(
         f"/api/v1/users/{target['id']}",
-        json={"full_name": f" {target['full_name']} ", "role": target["role"], "is_active": target["is_active"]},
+        json={"expected_version": target["version"], "full_name": f" {target['full_name']} ", "role": target["role"], "is_active": target["is_active"]},
     )
     assert response.status_code == 200
     assert response.json()["full_name"] == target["full_name"]
@@ -1286,7 +1309,7 @@ def test_empty_user_update_does_not_create_audit_event(client: TestClient) -> No
     assert users.status_code == 200
     target = next(user for user in users.json() if user["email"] == "editor.a@example.com")
 
-    response = client.patch(f"/api/v1/users/{target['id']}", json={})
+    response = client.patch(f"/api/v1/users/{target['id']}", json={"expected_version": target["version"]})
     assert response.status_code == 200
     assert response.json()["id"] == target["id"]
 

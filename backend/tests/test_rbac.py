@@ -146,7 +146,7 @@ def test_editor_role_matrix_allows_operational_writes_but_not_admin_actions(clie
     assert client.get("/api/v1/users").status_code == 403
     assert client.post("/api/v1/users", json=user_payload).status_code == 403
     assert client.patch(
-        "/api/v1/users/1", json={"full_name": "Forbidden"}
+        "/api/v1/users/1", json={"expected_version": 1, "full_name": "Forbidden"}
     ).status_code == 403
     assert client.post(
         "/api/v1/departments", json={"name": "Forbidden", "code": "FORBIDDEN"}
