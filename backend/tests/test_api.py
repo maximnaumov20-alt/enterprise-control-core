@@ -202,6 +202,41 @@ def test_asset_create_list_update_delete_and_audit(client: TestClient) -> None:
     assert client.get(f"/api/v1/assets/{asset_id}").status_code == 404
 
 
+def test_asset_delete_persists_complete_audit_snapshot(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/assets",
+        json={
+            "name": "Retired database server",
+            "asset_tag": "DELETE-AUDIT-SNAPSHOT-001",
+            "category": "Server",
+            "status": "in_repair",
+        },
+    )
+    assert created.status_code == 201
+    asset = created.json()
+
+    deleted = client.delete(f"/api/v1/assets/{asset['id']}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/v1/assets/{asset['id']}").status_code == 404
+
+    events = client.get("/api/v1/audit-events")
+    assert events.status_code == 200
+    deletion_events = [
+        event for event in events.json()
+        if event["action"] == "asset.deleted"
+        and event["entity_id"] == str(asset["id"])
+    ]
+    assert len(deletion_events) == 1
+    assert deletion_events[0]["entity_type"] == "asset"
+    assert deletion_events[0]["actor_user_id"] is not None
+    assert deletion_events[0]["details"] == {
+        "asset_tag": "DELETE-AUDIT-SNAPSHOT-001",
+        "name": "Retired database server",
+        "category": "Server",
+        "status": "in_repair",
+    }
+
+
 def test_asset_delete_referenced_by_maintenance_returns_conflict_without_audit(client: TestClient) -> None:
     created = client.post(
         "/api/v1/assets",
