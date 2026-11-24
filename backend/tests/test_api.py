@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm.exc import StaleDataError
 
 from app import main
 from app.main import (
@@ -2390,3 +2391,57 @@ def test_department_update_requires_expected_version(client: TestClient) -> None
         json={"name": "Missing version"},
     )
     assert response.status_code == 422
+
+
+
+def test_user_optimistic_locking_rejects_a_real_concurrent_write() -> None:
+    from sqlalchemy.orm.exc import StaleDataError
+
+    test_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=test_engine, autoflush=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=test_engine)
+    try:
+        with TestingSessionLocal() as setup_session:
+            organization = Organization(name="Concurrency Test")
+            setup_session.add(organization)
+            setup_session.flush()
+            user = User(
+                organization_id=organization.id,
+                email="concurrent.user@example.com",
+                full_name="Original Name",
+                password_hash=password_hash.hash("concurrency-test-password-123"),
+                role=UserRole.editor,
+            )
+            setup_session.add(user)
+            setup_session.commit()
+            user_id = user.id
+
+        with TestingSessionLocal() as first_session, TestingSessionLocal() as second_session:
+            first_copy = first_session.get(User, user_id)
+            second_copy = second_session.get(User, user_id)
+            assert first_copy is not None
+            assert second_copy is not None
+            assert first_copy.version == second_copy.version == 1
+
+            first_copy.full_name = "First Writer"
+            first_session.commit()
+
+            second_copy.full_name = "Stale Writer"
+            with pytest.raises(StaleDataError):
+                second_session.commit()
+            second_session.rollback()
+
+        with TestingSessionLocal() as verify_session:
+            stored = verify_session.get(User, user_id)
+            assert stored is not None
+            assert stored.full_name == "First Writer"
+            assert stored.version == 2
+    finally:
+        Base.metadata.drop_all(bind=test_engine)
+        test_engine.dispose()
