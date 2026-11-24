@@ -440,6 +440,59 @@ def test_asset_csv_import_aggregate_audit_conflict_rolls_back_batch(
     } == existing_audit_ids
 
 
+def test_asset_csv_import_row_audit_failure_rolls_back_only_failed_row(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_tag = "CSV-ROW-AUDIT-FAIL-002"
+    payload = (
+        "name,asset_tag,category\n"
+        "First laptop,CSV-ROW-AUDIT-OK-001,Laptop\n"
+        "Failed laptop,CSV-ROW-AUDIT-FAIL-002,Laptop\n"
+        "Last laptop,CSV-ROW-AUDIT-OK-003,Laptop\n"
+    )
+    original_record_audit = main.record_audit
+
+    def fail_one_row_audit(session, user, action, entity_type, entity_id, details=None):
+        if (
+            action == "asset.imported"
+            and entity_type == "asset"
+            and details
+            and details.get("asset_tag") == failed_tag
+        ):
+            raise IntegrityError("audit insert", {}, Exception("simulated row audit conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_one_row_audit)
+    response = client.post(
+        "/api/v1/assets/import",
+        files={"file": ("assets.csv", payload.encode("utf-8"), "text/csv")},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["created"] == 2
+    assert result["skipped"] == 1
+    assert result["errors"] == [
+        {"row": 3, "error": "Duplicate asset tag or serial number"}
+    ]
+
+    assets = client.get("/api/v1/assets").json()
+    assert {asset["asset_tag"] for asset in assets} == {
+        "CSV-ROW-AUDIT-OK-001",
+        "CSV-ROW-AUDIT-OK-003",
+    }
+
+    imported_events = [
+        event for event in client.get("/api/v1/audit-events").json()
+        if event["action"] == "asset.imported"
+    ]
+    row_events = [event for event in imported_events if event["entity_type"] == "asset"]
+    assert {
+        event["details"]["asset_tag"] for event in row_events
+    } == {"CSV-ROW-AUDIT-OK-001", "CSV-ROW-AUDIT-OK-003"}
+    assert len([event for event in imported_events if event["entity_type"] == "asset_import"]) == 1
+
+
 def test_asset_csv_import_is_role_and_tenant_scoped(client: TestClient) -> None:
     payload = "name,asset_tag,category\nScoped laptop,CSV-SCOPE,Laptop\n"
     use_role(client, "viewer")
