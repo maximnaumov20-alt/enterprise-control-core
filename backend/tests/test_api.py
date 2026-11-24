@@ -1009,7 +1009,7 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
     ).status_code == 404
     assert client.patch(
         f"/api/v1/maintenance-requests/{maintenance_b['id']}",
-        json={"title": "Hijacked"},
+        json={"expected_version": maintenance_b["version"], "title": "Hijacked"},
     ).status_code == 404
 
     # Verify Company B data was not changed or removed.
@@ -1200,7 +1200,7 @@ def test_related_records_reject_foreign_departments_and_inactive_assignees(clien
 
     assignment = client.patch(
         f"/api/v1/maintenance-requests/{maintenance.json()['id']}",
-        json={"assigned_to_user_id": editor["id"]},
+        json={"expected_version": maintenance.json()["version"], "assigned_to_user_id": editor["id"]},
     )
     assert assignment.status_code == 422
 
@@ -1668,6 +1668,7 @@ def test_noop_maintenance_update_does_not_create_audit_event(client: TestClient)
     )
     assert created.status_code == 201
     request_id = created.json()["id"]
+    request_version = created.json()["version"]
 
     before = client.get("/api/v1/audit-events")
     assert before.status_code == 200
@@ -1675,7 +1676,7 @@ def test_noop_maintenance_update_does_not_create_audit_event(client: TestClient)
 
     unchanged = client.patch(
         f"/api/v1/maintenance-requests/{request_id}",
-        json={"title": "Check cooling", "status": "open"},
+        json={"expected_version": request_version, "title": "Check cooling", "status": "open"},
     )
     assert unchanged.status_code == 200
     assert unchanged.json()["resolved_at"] is None
@@ -1685,7 +1686,7 @@ def test_noop_maintenance_update_does_not_create_audit_event(client: TestClient)
 
     resolved = client.patch(
         f"/api/v1/maintenance-requests/{request_id}",
-        json={"status": "resolved"},
+        json={"expected_version": unchanged.json()["version"], "status": "resolved"},
     )
     assert resolved.status_code == 200
     resolved_at = resolved.json()["resolved_at"]
@@ -1695,7 +1696,7 @@ def test_noop_maintenance_update_does_not_create_audit_event(client: TestClient)
     before_repeat_ids = [event["id"] for event in before_repeat.json()]
     repeated = client.patch(
         f"/api/v1/maintenance-requests/{request_id}",
-        json={"status": "resolved"},
+        json={"expected_version": resolved.json()["version"], "status": "resolved"},
     )
     assert repeated.status_code == 200
     assert repeated.json()["resolved_at"] == resolved_at
@@ -1799,12 +1800,12 @@ def test_maintenance_update_integrity_error_rolls_back_without_audit(
     monkeypatch.setattr(main, "record_audit", fail_maintenance_update_audit)
     response = client.patch(
         f"/api/v1/maintenance-requests/{request_id}",
-        json={"title": "Partially updated maintenance title"},
+        json={"expected_version": created.json()["version"], "title": "Partially updated maintenance title"},
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        "Maintenance request update conflicts with current organization records"
+        "Maintenance request update conflicts with current organization records or stale version"
     )
     stored = client.get("/api/v1/maintenance-requests")
     assert stored.status_code == 200
