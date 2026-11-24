@@ -493,6 +493,49 @@ def test_asset_csv_import_row_audit_failure_rolls_back_only_failed_row(
     assert len([event for event in imported_events if event["entity_type"] == "asset_import"]) == 1
 
 
+
+def test_asset_csv_import_unexpected_audit_error_rolls_back_entire_batch(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_tag = "CSV-UNEXPECTED-ERROR-002"
+    payload = (
+        "name,asset_tag,category\\n"
+        "First laptop,CSV-UNEXPECTED-ERROR-001,Laptop\\n"
+        "Failed laptop,CSV-UNEXPECTED-ERROR-002,Laptop\\n"
+        "Last laptop,CSV-UNEXPECTED-ERROR-003,Laptop\\n"
+    )
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+    failed_calls = 0
+
+    def fail_with_unexpected_error(session, user, action, entity_type, entity_id, details=None):
+        nonlocal failed_calls
+        if (
+            action == "asset.imported"
+            and entity_type == "asset"
+            and details
+            and details.get("asset_tag") == failed_tag
+        ):
+            failed_calls += 1
+            raise RuntimeError("simulated unexpected audit failure")
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_with_unexpected_error)
+    with pytest.raises(RuntimeError, match="simulated unexpected audit failure"):
+        client.post(
+            "/api/v1/assets/import",
+            files={"file": ("assets.csv", payload.encode("utf-8"), "text/csv")},
+        )
+
+    assert failed_calls == 1
+    assert client.get("/api/v1/assets").json() == []
+    assert {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    } == existing_audit_ids
+
+
 def test_asset_csv_import_is_role_and_tenant_scoped(client: TestClient) -> None:
     payload = "name,asset_tag,category\nScoped laptop,CSV-SCOPE,Laptop\n"
     use_role(client, "viewer")
