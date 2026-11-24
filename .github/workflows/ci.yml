@@ -553,8 +553,23 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      - name: Check optional recovery archive configuration
+        id: recovery-archive-config
+        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        env:
+          ROLE_ARN: ${{ secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN }}
+          ARCHIVE_BUCKET: ${{ vars.ECC_RECOVERY_ARCHIVE_BUCKET }}
+          AWS_REGION: ${{ vars.ECC_AWS_REGION }}
+        run: |
+          if [[ -n "$ROLE_ARN" && -n "$ARCHIVE_BUCKET" && -n "$AWS_REGION" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Optional S3 recovery archive is not configured."
+          fi
+
       - name: Configure optional recovery archive credentials
-        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN != '' && vars.ECC_RECOVERY_ARCHIVE_BUCKET != '' && vars.ECC_AWS_REGION != '' }}
+        if: ${{ always() && steps.recovery-archive-config.outputs.enabled == 'true' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN }}
@@ -562,7 +577,7 @@ jobs:
           role-session-name: ecc-recovery-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Archive recovery evidence to S3
-        if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ECC_RECOVERY_ARCHIVE_ROLE_ARN != '' && vars.ECC_RECOVERY_ARCHIVE_BUCKET != '' && vars.ECC_AWS_REGION != '' }}
+        if: ${{ always() && steps.recovery-archive-config.outputs.enabled == 'true' }}
         env:
           ARCHIVE_BUCKET: ${{ vars.ECC_RECOVERY_ARCHIVE_BUCKET }}
         run: |
