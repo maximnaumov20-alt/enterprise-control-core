@@ -1036,7 +1036,7 @@ def test_cross_tenant_write_endpoints_and_audit_are_isolated(client: TestClient)
     # Company A must not read, modify, or delete Company B records by guessing IDs.
     use_role(client, "admin")
     assert client.patch(
-        f"/api/v1/departments/{department_b['id']}", json={"name": "Hijacked"}
+        f"/api/v1/departments/{department_b['id']}", json={"expected_version": department_b["version"], "name": "Hijacked"}
     ).status_code == 404
     assert client.delete(f"/api/v1/departments/{department_b['id']}").status_code == 404
     assert client.patch(
@@ -1618,7 +1618,7 @@ def test_noop_department_update_does_not_create_audit_event(client: TestClient) 
 
     updated = client.patch(
         f"/api/v1/departments/{department_id}",
-        json={"name": "No-op Department", "code": "NOOP"},
+        json={"expected_version": created.json()["version"], "name": "No-op Department", "code": "NOOP"},
     )
     assert updated.status_code == 200
     assert updated.json()["name"] == "No-op Department"
@@ -2069,12 +2069,12 @@ def test_department_update_audit_integrity_error_rolls_back_changes(
     monkeypatch.setattr(main, "record_audit", fail_department_update_audit)
     response = client.patch(
         f"/api/v1/departments/{department_id}",
-        json={"name": "Partially Updated Department"},
+        json={"expected_version": created.json()["version"], "name": "Partially Updated Department"},
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        "Department update conflicts with current organization records"
+        "Department update conflicts with current organization records or stale version"
     )
     stored = client.get("/api/v1/departments")
     assert stored.status_code == 200
@@ -2321,3 +2321,49 @@ def test_bulk_asset_update_requires_current_versions(client: TestClient) -> None
     assert changed["name"] == "Changed elsewhere"
     assert changed["version"] == 2
     assert client.get("/api/v1/audit-events").json() == audit_before
+
+
+def test_department_update_uses_optimistic_locking_and_rejects_stale_versions(
+    client: TestClient,
+) -> None:
+    created = client.post(
+        "/api/v1/departments",
+        json={"name": "Versioned Department", "code": "VERSIONED"},
+    )
+    assert created.status_code == 201
+    department = created.json()
+    assert department["version"] == 1
+
+    updated = client.patch(
+        f"/api/v1/departments/{department['id']}",
+        json={"expected_version": 1, "name": "Updated Department"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 2
+
+    audit_before = client.get("/api/v1/audit-events").json()
+    stale = client.patch(
+        f"/api/v1/departments/{department['id']}",
+        json={"expected_version": 1, "name": "Stale overwrite"},
+    )
+    assert stale.status_code == 409
+    assert "changed" in stale.json()["detail"].lower()
+
+    stored = client.get("/api/v1/departments").json()
+    assert stored[0]["name"] == "Updated Department"
+    assert stored[0]["version"] == 2
+    assert client.get("/api/v1/audit-events").json() == audit_before
+
+
+def test_department_update_requires_expected_version(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/departments",
+        json={"name": "Version Required", "code": "VERSION-REQ"},
+    )
+    assert created.status_code == 201
+
+    response = client.patch(
+        f"/api/v1/departments/{created.json()['id']}",
+        json={"name": "Missing version"},
+    )
+    assert response.status_code == 422
