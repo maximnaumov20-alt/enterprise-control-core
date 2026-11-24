@@ -2522,7 +2522,6 @@ def test_all_versioned_entities_reject_real_concurrent_writes() -> None:
                         employee_number="CONCURRENT-EMP-001",
                         full_name="Original Employee",
                         email="concurrent.employee@example.com",
-                        organization_id=organization.id,
                     ),
                     "full_name",
                     "Updated Employee",
