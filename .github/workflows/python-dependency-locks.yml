@@ -38,7 +38,7 @@ jobs:
           pip-compile --resolver=backtracking --generate-hashes --output-file=backend/requirements-dev.lock backend/requirements-dev.in
 
       - name: Create or update dependency-lock pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: automation/update-python-dependency-locks
