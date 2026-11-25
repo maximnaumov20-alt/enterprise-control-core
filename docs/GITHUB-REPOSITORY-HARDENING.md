@@ -1,27 +1,37 @@
 # GitHub repository hardening
 
-## Current limitation
+## Current configuration (verified 2026-11-25)
 
-Repository configuration is partly outside the source tree. A workflow file, CODEOWNERS file or pull-request template cannot by itself prevent direct pushes to `main`. GitHub branch rules must be enabled in repository settings by an administrator.
+Repository configuration is partly outside the source tree. A workflow file, CODEOWNERS file or pull-request template cannot by itself prevent direct pushes to `main`; GitHub administrator settings enforce these rules.
 
-The repository was inspected on 2026-11-25. At that time, the `main` branch reported `protected: false` and no required status checks. This is a material governance risk: successful CI runs are informative but are not a merge gate.
+The repository has an active branch ruleset named **Protect main** (ruleset ID `28054326`). Its target is explicitly `refs/heads/main`. The ruleset currently enforces:
 
-## Required administrator configuration
+- pull requests before merging;
+- branch deletion blocked;
+- non-fast-forward updates (force pushes) blocked;
+- review-thread resolution;
+- no required approving review count (currently 0);
+- no required status checks yet.
 
-In **Settings → Rules → Rulesets**, create an active branch ruleset targeting the default branch (`main`):
+The ruleset's `required_status_checks` list is empty. Therefore CI and security workflows can pass without acting as a merge gate. Do not describe the branch as fully protected until required checks are configured and verified.
 
-1. Require a pull request before merging.
-2. Require at least one approval from a person other than the PR author. Do not count the author's own approval.
-3. Dismiss stale approvals when new commits are pushed.
-4. Require approval of the most recent reviewable push where available.
-5. Require all applicable CI and security checks to pass before merging. Select the actual check names shown by GitHub after a fresh PR run; at minimum include the backend test job, frontend build, Docker build, Python dependency audit, frontend dependency audit and container image vulnerability scan.
-6. Require conversation resolution.
-7. Require branches to be up to date before merging, if the repository's workflow duration and team size make this practical.
-8. Block force pushes and branch deletion.
-9. Do not grant routine bypass to administrators or automation. Keep any emergency bypass narrow, documented and audited.
-10. Enable signed-commit enforcement only after all contributors can reliably sign commits.
+The classic branch-protection endpoint returned HTTP 403 to the connected integration during the audit. This is not evidence that the ruleset is inactive; the active ruleset was read successfully from the repository rulesets API.
 
-If using classic branch protection instead, configure equivalent settings under **Settings → Branches**.
+## Required administrator follow-up
+
+In **Settings → Rules → Rulesets → Protect main**:
+
+1. Keep enforcement set to **Active** and target exactly `refs/heads/main`.
+2. Keep **Require a pull request before merging**, **Restrict deletions**, **Block force pushes**, and **Require conversation resolution** enabled.
+3. Keep required approvals at 0 while there is no independent reviewer. Once a trusted second reviewer is available, consider requiring one approval and dismissing stale approvals after new commits. Do not create a self-approval requirement that cannot provide independent review.
+4. Configure required status checks using the exact check names shown by GitHub after a fresh PR run. The current workflow job names are:
+   - ECC CI: `test`, `frontend-build`, `docker-build`, `shell-validation`;
+   - ECC Security Scan: `Python dependency audit`, `Frontend dependency audit`, `Container image vulnerability scan`.
+5. Do not select `archive-recovery-evidence` as a required PR check: it runs only for successful pushes to `main`, not for pull requests.
+6. Consider requiring branches to be up to date only after confirming the resulting merge workflow remains practical.
+7. Do not grant routine bypass to administrators or automation. Keep any emergency bypass narrow, documented and audited.
+
+If using classic branch protection instead, configure equivalent settings under **Settings → Branches**. Avoid maintaining conflicting rulesets unless their combined effect is understood.
 
 ## Additional repository settings
 
@@ -37,14 +47,16 @@ If using classic branch protection instead, configure equivalent settings under 
 ## Verification after configuration
 
 An administrator should verify that:
+
+- the ruleset remains Active and explicitly targets `refs/heads/main`;
 - a direct push to `main` is rejected;
 - a PR cannot merge while a required check is failing or pending;
-- an author cannot satisfy the approval requirement with their own review;
 - force-push and branch deletion are rejected;
-- required checks correspond to current workflow job names and are not accidentally optional.
+- required checks correspond to current workflow job names and are not accidentally optional;
+- the selected checks actually run for pull requests and do not refer to push-only jobs.
 
 Record the ruleset URL, date, administrator and a screenshot/export of the effective rules. Recheck after workflow job names change.
 
 ## Scope
 
-This document is a configuration runbook, not proof that protections are active. Until the administrator settings above are applied and verified, treat `main` as unprotected.
+This document is a configuration runbook and a record of the ruleset state observed on 2026-11-25. It is not proof that every intended merge gate is active. The active ruleset currently protects the target branch against deletion, force-push and direct non-PR changes, but required CI/security checks still need to be added.
