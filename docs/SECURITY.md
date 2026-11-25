@@ -18,13 +18,14 @@ ECC is an early-development project. Authentication, role checks, organization-s
 - Asset inventory identifiers are unique within an organization rather than globally.
 - Basic audit events are recorded for asset and user changes and are visible only to organization administrators.
 - Users can change their password after authenticating; new passwords must be at least 12 characters.
+- Each successful login creates a persisted session. Users can view their session list and revoke one session or all sessions from the security page. Session records currently do not store device fingerprints, browser details or IP addresses.
 - Initial administrator creation is a deployment/bootstrap operation, not a public registration endpoint.
 - Login throttling allows 10 attempts per client IP in a 60-second fixed window, using Redis as a shared counter store in the Compose deployment.
 
 ## Important remaining limitations
 
-- There is no refresh-token flow or individual-token revocation list. The per-user token version invalidates all of a user's existing access tokens after a password change or active-state change; it does not provide selective revocation for a single token. Otherwise, a stolen token can remain usable until expiry.
-- Account lockout, MFA, password reset and email verification are not implemented.
+- Persisted per-login sessions support selective session revocation and account-wide logout. Access tokens are checked against their session record on authenticated requests. There is no refresh-token flow or token rotation yet.
+- MFA, password reset and email verification are not implemented. Login throttling is implemented; account lockout is not.
 - Audit events are application-level records, not tamper-proof or cryptographically chained. Database administrators can alter them.
 - Organization provisioning is currently performed by the bootstrap command. There is no self-service tenant signup.
 - There is no independent penetration test, formal threat model, production backup/restore certification or compliance assessment.
