@@ -86,6 +86,86 @@ def test_health_endpoint(client: TestClient) -> None:
     assert response.json()["status"] == "ok"
 
 
+def test_readiness_endpoint_checks_database_and_optional_redis(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def execute(self, statement):
+            return None
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    monkeypatch.setattr(main, "engine", Engine())
+    monkeypatch.setattr(main, "redis_client", None)
+
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {"database": "ok", "redis": "not_configured"},
+    }
+
+
+def test_readiness_endpoint_returns_503_when_database_is_unavailable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class UnavailableEngine:
+        def connect(self):
+            raise RuntimeError("internal database details must not leak")
+
+    monkeypatch.setattr(main, "engine", UnavailableEngine())
+    monkeypatch.setattr(main, "redis_client", None)
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "status": "not_ready",
+        "checks": {"database": "unavailable", "redis": "not_configured"},
+    }
+    assert "internal database details" not in response.text
+
+
+def test_readiness_endpoint_returns_503_when_configured_redis_is_unavailable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def execute(self, statement):
+            return None
+
+    class Engine:
+        def connect(self):
+            return Connection()
+
+    class UnavailableRedis:
+        def ping(self):
+            raise RuntimeError("internal redis details must not leak")
+
+    monkeypatch.setattr(main, "engine", Engine())
+    monkeypatch.setattr(main, "redis_client", UnavailableRedis())
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "status": "not_ready",
+        "checks": {"database": "ok", "redis": "unavailable"},
+    }
+    assert "internal redis details" not in response.text
+
+
 def test_api_responses_are_not_cached(client: TestClient) -> None:
     successful_response = client.get("/api/v1/assets")
     assert successful_response.status_code == 200
