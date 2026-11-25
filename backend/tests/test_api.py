@@ -100,7 +100,19 @@ def test_api_responses_are_not_cached(client: TestClient) -> None:
     )
     assert token_response.status_code == 200
 
-    for response in (successful_response, unauthorized_response, token_response):
+    not_found_response = client.get("/api/v1/assets/99999999")
+    assert not_found_response.status_code == 404
+
+    validation_response = client.post("/api/v1/assets", json={})
+    assert validation_response.status_code == 422
+
+    for response in (
+        successful_response,
+        unauthorized_response,
+        token_response,
+        not_found_response,
+        validation_response,
+    ):
         assert response.headers.get("Cache-Control") == "no-store"
         assert response.headers.get("Pragma") == "no-cache"
 
