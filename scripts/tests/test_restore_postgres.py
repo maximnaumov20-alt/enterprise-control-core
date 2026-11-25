@@ -41,14 +41,14 @@ set -Eeuo pipefail
 [[ "${FAKE_AGE_FAIL:-0}" != "1" ]] || exit 45
 output=""
 input=""
+identity=""
 while (($#)); do
   case "$1" in
-    --decrypt)
-      shift
-      ;;
+    --decrypt) shift ;;
     --identity)
       shift
       [[ $# -gt 0 ]]
+      identity="$1"
       shift
       ;;
     --output)
@@ -63,8 +63,10 @@ while (($#)); do
       ;;
   esac
 done
-[[ -n "$output" && -n "$input" ]]
-[[ -s "$input" ]]
+[[ -n "$identity" && -n "$output" && -n "$input" ]]
+[[ "$(cat "$identity")" == "fixture identity" ]] || exit 46
+[[ -s "$input" ]] || exit 47
+[[ "${FAKE_AGE_EMPTY:-0}" != "1" ]] || exit 0
 printf '%s' "valid-postgres-archive-fixture" > "$output"
 '''
 
@@ -166,6 +168,24 @@ class RestorePostgresTests(unittest.TestCase):
         result = self.run_restore(encrypted)
         self.assertEqual(result.returncode, 2)
         self.assertIn("requires readable ECC_BACKUP_AGE_IDENTITY", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assertEqual(list(self.tmpdir.glob("ecc-restore.*")), [])
+
+    def test_rejects_wrong_age_identity_before_database_access(self) -> None:
+        encrypted = self.root / "backup.dump.age"
+        encrypted.write_bytes(b"encrypted fixture")
+        self.identity.write_text("wrong identity", encoding="utf-8")
+        result = self.run_restore(encrypted)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.capture.exists())
+        self.assertEqual(list(self.tmpdir.glob("ecc-restore.*")), [])
+
+    def test_rejects_empty_decrypted_archive_and_cleans_plaintext(self) -> None:
+        encrypted = self.root / "backup.dump.age"
+        encrypted.write_bytes(b"encrypted fixture")
+        self.env["FAKE_AGE_EMPTY"] = "1"
+        result = self.run_restore(encrypted)
+        self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.capture.exists())
         self.assertEqual(list(self.tmpdir.glob("ecc-restore.*")), [])
 
