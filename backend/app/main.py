@@ -969,7 +969,7 @@ def logout(session: SessionDep, user: CurrentUser):
         session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Logout conflicts with current session records")
+        raise HTTPException(status_code=409, detail="Logout conflicts with current account records")
     return {"status": "logged_out", "revoked_sessions": "current" if session_id else "all"}
 
 
