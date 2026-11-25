@@ -65,3 +65,14 @@ Operational notes:
 - Configure external monitoring to poll `/ready` and alert on non-200 responses or sustained unhealthy status.
 - Keep `/health` for liveness-only checks. Do not use it as proof that PostgreSQL or Redis is available.
 - Probe responses intentionally expose only dependency status, never hostnames, credentials, stack traces, or raw exception details.
+
+## Browser security headers
+
+The frontend Nginx gateway sends a restrictive Content Security Policy and baseline browser protections:
+
+- Scripts, styles, fonts and API connections are limited to the same origin; inline scripts/styles and third-party CDN allowances are not enabled.
+- Images are limited to same-origin resources and embedded data URLs.
+- Objects, cross-origin framing, form submissions to other origins, camera, microphone and geolocation are disabled.
+- The gateway also sends `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Cross-Origin-Resource-Policy`, `X-Permitted-Cross-Domain-Policies` and `X-DNS-Prefetch-Control`.
+
+If a future integration needs an external origin, add only the exact required origin to the relevant CSP directive after review. Do not restore broad CDN access or `unsafe-inline` as a convenience workaround. HSTS is intentionally not emitted by the internal HTTP frontend: configure it at the public TLS-terminating reverse proxy after HTTPS is verified for the entire hostname.
