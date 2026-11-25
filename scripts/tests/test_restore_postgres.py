@@ -43,9 +43,24 @@ output=""
 input=""
 while (($#)); do
   case "$1" in
-    --decrypt|--identity) shift; [[ "$1" == "--identity" ]] && shift ;;
-    --output) output="$2"; shift 2 ;;
-    *) input="$1"; shift ;;
+    --decrypt)
+      shift
+      ;;
+    --identity)
+      shift
+      [[ $# -gt 0 ]]
+      shift
+      ;;
+    --output)
+      shift
+      [[ $# -gt 0 ]]
+      output="$1"
+      shift
+      ;;
+    *)
+      input="$1"
+      shift
+      ;;
   esac
 done
 [[ -n "$output" && -n "$input" ]]
