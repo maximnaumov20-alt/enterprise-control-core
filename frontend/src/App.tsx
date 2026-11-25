@@ -783,12 +783,15 @@ export default function App() {
           {sessionsLoading ? <div className="empty">Загрузка сеансов...</div> : authSessions.length === 0 ? <div className="empty">Активных сеансов нет.</div> : <div className="table-wrap"><table><thead><tr><th>СОЗДАН</th><th>ПОСЛЕДНЯЯ АКТИВНОСТЬ</th><th>ИСТЕКАЕТ</th><th>СТАТУС</th><th>ДЕЙСТВИЕ</th></tr></thead><tbody>
             {authSessions.map(session => {
               const isCurrent = session.id === currentSessionId();
+              const isExpired = new Date(session.expires_at).getTime() <= Date.now();
+              const isRevoked = Boolean(session.revoked_at);
+              const sessionStatus = isRevoked ? "Завершён" : isExpired ? "Истёк" : "Активен";
               return <tr key={session.id}>
                 <td><strong>{new Date(session.created_at).toLocaleString()}</strong>{isCurrent && <small>Текущий сеанс</small>}</td>
                 <td>{new Date(session.last_seen_at).toLocaleString()}</td>
                 <td>{new Date(session.expires_at).toLocaleString()}</td>
-                <td><span className={`status ${session.revoked_at ? "status-retired" : "status-active"}`}>{session.revoked_at ? "Завершён" : "Активен"}</span></td>
-                <td>{session.revoked_at ? "—" : <button className="subtle" disabled={sessionActionId !== null} onClick={() => void revokeSession(session)}>{sessionActionId === session.id ? "Завершение..." : isCurrent ? "Завершить этот сеанс" : "Завершить"}</button>}</td>
+                <td><span className={`status ${!isRevoked && !isExpired ? "status-active" : "status-retired"}`}>{sessionStatus}</span></td>
+                <td>{isRevoked || isExpired ? "—" : <button className="subtle" disabled={sessionActionId !== null} onClick={() => void revokeSession(session)}>{sessionActionId === session.id ? "Завершение..." : isCurrent ? "Завершить этот сеанс" : "Завершить"}</button>}</td>
               </tr>;
             })}
           </tbody></table></div>}
