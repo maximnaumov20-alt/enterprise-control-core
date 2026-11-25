@@ -21,6 +21,8 @@
 - [x] Administrator UI for user accounts and audit history
 - [x] Authenticated password change
 - [x] Per-user access-token invalidation after password or account-active-state changes
+- [x] Persisted per-login sessions with individual and account-wide revocation
+- [x] User interface for listing sessions, viewing timestamps and revoking individual or all sessions (PR #129)
 
 ## Phase 2 - operational readiness
 - [ ] Backup and restore procedures (local encrypted backup/restore, PostgreSQL recovery CI test, S3 uploader with full read-back checksum verification, locked backup/upload orchestration and offline fake-AWS uploader tests added; real-host scheduling, live provider upload/download recovery, immutable retention and measured RPO/RTO pending)
