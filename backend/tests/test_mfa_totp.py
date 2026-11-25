@@ -36,10 +36,14 @@ def test_verification_accepts_one_step_clock_drift():
     assert verify_totp(RFC_SECRET, previous, 60, valid_window=0) is None
 
 
-def test_invalid_codes_are_rejected():
-    assert verify_totp(RFC_SECRET, "12345", 59) is None
-    assert verify_totp(RFC_SECRET, "12a456", 59) is None
-    assert verify_totp(RFC_SECRET, "１２３４５６", 59) is None
+@pytest.mark.parametrize("code", ["12345", "12a456", "１２３４５６", None, 123456])
+def test_invalid_codes_are_rejected(code):
+    assert verify_totp(RFC_SECRET, code, 59) is None
+
+
+def test_malformed_or_undersized_secrets_fail_closed_during_verification():
+    assert verify_totp("not-a-secret", "123456", 59) is None
+    assert verify_totp("MY", "123456", 59) is None
 
 
 def test_secret_generation_has_sufficient_entropy_and_valid_encoding():
@@ -48,6 +52,10 @@ def test_secret_generation_has_sufficient_entropy_and_valid_encoding():
     assert totp_code(secret, 0).isdigit()
     with pytest.raises(ValueError):
         generate_totp_secret(10)
+    with pytest.raises(ValueError):
+        generate_totp_secret(65)
+    with pytest.raises(ValueError):
+        generate_totp_secret(True)
 
 
 def test_provisioning_uri_encodes_label_and_sets_standard_parameters():
@@ -59,10 +67,25 @@ def test_provisioning_uri_encodes_label_and_sets_standard_parameters():
     assert "secret=" in uri
 
 
+def test_provisioning_uri_normalizes_base32_whitespace():
+    uri = provisioning_uri("GEZDGNBV GY3TQOJQGEZDGNBVGY3TQOJQ", "user@example.com", "ECC")
+    assert "secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" in uri
+
+
 def test_invalid_secret_and_parameters_fail_closed():
     with pytest.raises(ValueError):
         totp_code("not-a-secret", 59)
     with pytest.raises(ValueError):
         totp_code(RFC_SECRET, 59, period=0)
     with pytest.raises(ValueError):
+        totp_code(RFC_SECRET, 59, period=True)
+    with pytest.raises(ValueError):
+        totp_code(RFC_SECRET, 59, timestamp=float("inf"))
+    with pytest.raises(ValueError):
+        totp_code(RFC_SECRET, 59, timestamp=float("nan"))
+    with pytest.raises(ValueError):
+        totp_code(RFC_SECRET, 59, timestamp=-1)
+    with pytest.raises(ValueError):
         verify_totp(RFC_SECRET, "123456", 59, valid_window=3)
+    with pytest.raises(ValueError):
+        verify_totp(RFC_SECRET, "123456", 59, valid_window=True)
