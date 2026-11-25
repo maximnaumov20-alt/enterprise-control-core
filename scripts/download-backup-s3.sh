@@ -57,11 +57,12 @@ if [[ "$actual_checksum" != "$expected_checksum" || "$actual_size" != "$expected
   exit 1
 fi
 
-if [[ -e "$output_file" ]]; then
+# Publish with an atomic no-clobber operation. A plain mv after the existence
+# check could overwrite a file created concurrently between the check and move.
+if ! ln "$temporary_file" "$output_file"; then
   echo "Refusing to replace an output file created during download." >&2
   exit 2
 fi
-mv "$temporary_file" "$output_file"
-chmod 600 "$output_file"
+rm -f "$temporary_file"
 echo "Encrypted backup downloaded and verified: $output_file"
 echo "SHA-256: $actual_checksum"
