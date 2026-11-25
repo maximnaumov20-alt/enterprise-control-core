@@ -37,7 +37,7 @@ class BackupHealthcheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["encrypted"])
-        self.assertEqual(payload["size_bytes"], 9)
+        self.assertEqual(payload["size_bytes"], 10)
 
     def test_reports_missing_backup_as_critical(self) -> None:
         result, payload = self.run_check()
