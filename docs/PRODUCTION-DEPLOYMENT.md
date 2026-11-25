@@ -49,3 +49,19 @@ For local development, `CORS_ORIGINS=http://localhost:5173` remains suitable. Th
 ## Explicit non-goals of this checklist
 
 This file does not provision TLS, cloud networking, a secrets manager, monitoring, a backup schedule, immutable storage, MFA, or disaster recovery. Those require environment-specific infrastructure and validation. Do not interpret a successful Compose start as production certification.
+
+## Runtime health monitoring
+
+The API exposes two distinct probes:
+
+- `/health` is a liveness check. It confirms that the API process can answer HTTP requests and does not query dependencies.
+- `/ready` is a readiness check. It verifies PostgreSQL connectivity and, when Redis is configured, Redis connectivity. It returns HTTP 503 when a required dependency is unavailable and does not include connection strings or exception messages.
+
+The Docker image and Compose API service use `/ready` for container health. This makes a dependency outage visible in container health status rather than reporting a healthy API process that cannot serve normal requests. The liveness endpoint remains available for orchestrators that need a process-only restart signal.
+
+Operational notes:
+
+- A failed readiness check marks the container unhealthy; Docker Compose does not automatically restart a container solely because it is unhealthy.
+- Configure external monitoring to poll `/ready` and alert on non-200 responses or sustained unhealthy status.
+- Keep `/health` for liveness-only checks. Do not use it as proof that PostgreSQL or Redis is available.
+- Probe responses intentionally expose only dependency status, never hostnames, credentials, stack traces, or raw exception details.
