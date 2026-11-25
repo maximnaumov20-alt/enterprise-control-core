@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -13,7 +12,11 @@ from urllib.error import URLError
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-import monitor_runtime as monitor
+import importlib.util
+SPEC = importlib.util.spec_from_file_location("monitor_runtime", ROOT / "scripts" / "monitor-runtime.py")
+assert SPEC is not None and SPEC.loader is not None
+monitor = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(monitor)
 
 
 class Response:
@@ -63,7 +66,7 @@ class RuntimeMonitorTests(unittest.TestCase):
             "ECC_MONITOR_READINESS_URL": "http://127.0.0.1:8000/ready",
             "ECC_MONITOR_WEBHOOK_URL": "http://example.test/hook",
         })
-        with patch.dict(os.environ, env), patch.object(monitor, "check_readiness") as readiness, patch.object(monitor, "check_backup") as backup:
+        with patch.dict("os.environ", env):
             result = subprocess.run([sys.executable, str(ROOT / "scripts" / "monitor-runtime.py")],
                                     env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
