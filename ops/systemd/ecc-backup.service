@@ -1,0 +1,22 @@
+[Unit]
+Description=ECC encrypted PostgreSQL backup and off-site upload
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ecc-backup
+Group=ecc-backup
+WorkingDirectory=/opt/enterprise-control-core
+EnvironmentFile=/etc/ecc/backup.env
+ExecStart=/usr/bin/bash /opt/enterprise-control-core/scripts/run-backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/enterprise-control-core/backups /var/lib/ecc-backup
