@@ -1836,7 +1836,18 @@ def delete_software_license(
     try:
         record_audit(
             session, user, "software_license.deleted", "software_license", license_record.id,
-            {"name": license_record.name},
+            {
+                "name": license_record.name,
+                "publisher": license_record.publisher,
+                "version": license_record.version,
+                "license_type": license_record.license_type.value,
+                "license_reference": license_record.license_reference,
+                "seats_total": license_record.seats_total,
+                "seats_used": license_record.seats_used,
+                "purchased_at": license_record.purchased_at.isoformat() if license_record.purchased_at else None,
+                "expires_at": license_record.expires_at.isoformat() if license_record.expires_at else None,
+                "status": license_record.status.value,
+            },
         )
         session.delete(license_record)
         session.commit()
