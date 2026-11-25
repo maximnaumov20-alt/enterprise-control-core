@@ -835,6 +835,22 @@ def change_password(
     return {"status": "password_updated"}
 
 
+@app.post("/api/v1/auth/logout", tags=["authentication"])
+def logout(session: SessionDep, user: CurrentUser):
+    """Revoke all access tokens for the current account."""
+    try:
+        user.token_version += 1
+        record_audit(session, user, "user.logged_out", "user", user.id)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Logout conflicts with current account records",
+        )
+    return {"status": "logged_out", "revoked_sessions": "all"}
+
+
 @app.get("/api/v1/auth/me", response_model=CurrentUserRead, tags=["authentication"])
 def get_me(user: CurrentUser, session: SessionDep):
     organization = session.get(Organization, user.organization_id)
