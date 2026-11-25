@@ -60,6 +60,30 @@ def test_ciphertext_is_bound_to_organization_and_user(organization_id, user_id):
         )
 
 
+def test_encryption_uses_fresh_nonce_for_each_ciphertext():
+    keys = keyring()
+    first = encrypt_totp_secret(
+        TOTP_SECRET, organization_id=7, user_id=42, keyring=keys
+    )
+    second = encrypt_totp_secret(
+        TOTP_SECRET, organization_id=7, user_id=42, keyring=keys
+    )
+    assert first != second
+
+
+def test_secret_is_canonicalized_before_encryption():
+    keys = keyring()
+    encrypted = encrypt_totp_secret(
+        "gez dgnbvgy3tqojqgezdgnbvgy3tqojq",
+        organization_id=7,
+        user_id=42,
+        keyring=keys,
+    )
+    assert decrypt_totp_secret(
+        encrypted, organization_id=7, user_id=42, keyring=keys
+    ) == TOTP_SECRET
+
+
 def test_ciphertext_tampering_is_rejected():
     keys = keyring()
     encrypted = encrypt_totp_secret(
