@@ -34,8 +34,11 @@ jobs:
       - name: Compile Python files
         run: python -m compileall -q backend/app backend/tests
 
-      - name: Run backup transfer regression tests
+      - name: Run backup and restore regression tests
         run: |
+          python scripts/tests/test_backup_postgres.py
+          python scripts/tests/test_restore_postgres.py
+          python scripts/tests/test_run_backup.py
           python scripts/tests/test_upload_backup_s3.py
           python scripts/tests/test_download_backup_s3.py
 
