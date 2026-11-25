@@ -37,6 +37,9 @@ if args[:2] == ["s3", "cp"] and args[2].startswith("s3://"):
     destination = pathlib.Path(args[3])
     if os.environ.get("FAKE_AWS_MODE") == "bad-bytes":
         destination.write_bytes(payload + b"corruption")
+    elif os.environ.get("FAKE_AWS_MODE") == "partial-download":
+        destination.write_bytes(b"partial")
+        raise SystemExit(42)
     else:
         destination.write_bytes(payload)
     raise SystemExit(0)
@@ -100,6 +103,16 @@ class S3DownloaderTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.output.exists())
         self.assertIn("checksum or size differs", result.stderr)
+
+    def test_cleans_partial_file_after_transient_download_failure(self) -> None:
+        temp_dir = self.base / "tmp"
+        temp_dir.mkdir()
+        self.env["TMPDIR"] = str(temp_dir)
+        self.env["FAKE_AWS_MODE"] = "partial-download"
+        result = self.run_downloader()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.output.parent.glob(".ecc-download.*")), [])
 
     def test_rejects_non_archive_uri_before_aws_call(self) -> None:
         result = self.run_downloader("s3://ecc-test-bucket/nightly/backup.dump")
