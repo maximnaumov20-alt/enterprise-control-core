@@ -129,10 +129,12 @@ def encrypt_totp_secret(
     keyring: MFAEncryptionKeyring,
 ) -> str:
     """Encrypt a validated Base32 TOTP secret for one organization/user."""
-    _decode_secret(secret)
+    normalized_secret = base64.b32encode(_decode_secret(secret)).decode("ascii").rstrip("=")
     aad = _identity_aad(organization_id, user_id)
     nonce = secrets.token_bytes(_NONCE_BYTES)
-    ciphertext = AESGCM(keyring.active_key).encrypt(nonce, secret.encode("ascii"), aad)
+    ciphertext = AESGCM(keyring.active_key).encrypt(
+        nonce, normalized_secret.encode("ascii"), aad
+    )
     return f"{_ENVELOPE_VERSION}.{_key_id(keyring.active_key)}.{_encode_bytes(nonce + ciphertext)}"
 
 
