@@ -99,6 +99,7 @@ def test_api_responses_are_not_cached(client: TestClient) -> None:
         data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
     )
     assert token_response.status_code == 200
+    use_role(client, "admin")
 
     not_found_response = client.get("/api/v1/assets/99999999")
     assert not_found_response.status_code == 404
