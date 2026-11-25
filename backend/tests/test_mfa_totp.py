@@ -80,6 +80,10 @@ def test_invalid_secret_and_parameters_fail_closed():
     with pytest.raises(ValueError):
         totp_code(RFC_SECRET, 59, period=True)
     with pytest.raises(ValueError):
+        totp_code(RFC_SECRET, 59, digits=6.0)
+    with pytest.raises(ValueError):
+        totp_code(RFC_SECRET, 59, digits=True)
+    with pytest.raises(ValueError):
         totp_code(RFC_SECRET, 59, timestamp=float("inf"))
     with pytest.raises(ValueError):
         totp_code(RFC_SECRET, 59, timestamp=float("nan"))
