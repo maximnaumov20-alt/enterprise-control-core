@@ -208,6 +208,7 @@ export const api = {
       body: new URLSearchParams({ username: email, password })
     }),
   me: () => request<CurrentUser>("/api/v1/auth/me"),
+  logout: () => request<{ status: string; revoked_sessions: string }>("/api/v1/auth/logout", { method: "POST" }),
   changePassword: (current_password: string, new_password: string) =>
     request<{ status: string }>("/api/v1/auth/change-password", {
       method: "POST",
