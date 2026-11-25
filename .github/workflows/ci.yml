@@ -44,6 +44,7 @@ jobs:
           python scripts/tests/test_verify_backup_postgres.py
           python scripts/tests/test_check_backup_freshness.py
           python scripts/tests/test_backup_healthcheck.py
+          python scripts/tests/test_monitor_runtime.py
 
       - name: Run API tests
         working-directory: backend
