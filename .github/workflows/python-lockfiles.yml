@@ -49,6 +49,15 @@ jobs:
           --output-file=backend/requirements-dev.lock
           backend/requirements-dev.in
 
+      - name: Print generated locks for dependency handoff
+        run: |
+          echo "ECC_RUNTIME_LOCK_BEGIN"
+          cat backend/requirements-runtime.lock
+          echo "ECC_RUNTIME_LOCK_END"
+          echo "ECC_DEV_LOCK_BEGIN"
+          cat backend/requirements-dev.lock
+          echo "ECC_DEV_LOCK_END"
+
       - name: Reject stale or hand-edited lockfiles
         run: |
           git diff --check
