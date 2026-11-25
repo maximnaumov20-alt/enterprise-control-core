@@ -3250,3 +3250,57 @@ def test_logout_all_revokes_every_persisted_session_and_invalidates_tokens(clien
 
     client.headers.update({"Authorization": f"Bearer {second}"})
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_auth_session_listing_is_scoped_to_authenticated_user(client: TestClient) -> None:
+    admin_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    editor_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "editor.a@example.com", "password": "test-password-editor-123"},
+    )
+    assert admin_login.status_code == 200
+    assert editor_login.status_code == 200
+
+    client.headers.update({"Authorization": f"Bearer {admin_login.json()['access_token']}"})
+    admin_sessions = client.get("/api/v1/auth/sessions")
+    assert admin_sessions.status_code == 200
+    assert len(admin_sessions.json()) == 1
+    admin_session_id = admin_sessions.json()[0]["id"]
+
+    client.headers.update({"Authorization": f"Bearer {editor_login.json()['access_token']}"})
+    editor_sessions = client.get("/api/v1/auth/sessions")
+    assert editor_sessions.status_code == 200
+    assert len(editor_sessions.json()) == 1
+    assert editor_sessions.json()[0]["id"] != admin_session_id
+
+
+def test_user_cannot_revoke_another_users_auth_session(client: TestClient) -> None:
+    admin_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    editor_login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "editor.a@example.com", "password": "test-password-editor-123"},
+    )
+    assert admin_login.status_code == 200
+    assert editor_login.status_code == 200
+
+    client.headers.update({"Authorization": f"Bearer {editor_login.json()['access_token']}"})
+    editor_sessions = client.get("/api/v1/auth/sessions")
+    assert editor_sessions.status_code == 200
+    editor_session_id = editor_sessions.json()[0]["id"]
+
+    client.headers.update({"Authorization": f"Bearer {admin_login.json()['access_token']}"})
+    cross_user_revoke = client.delete(f"/api/v1/auth/sessions/{editor_session_id}")
+    assert cross_user_revoke.status_code == 404
+
+    client.headers.update({"Authorization": f"Bearer {editor_login.json()['access_token']}"})
+    assert client.get("/api/v1/auth/me").status_code == 200
+    own_revoke = client.delete(f"/api/v1/auth/sessions/{editor_session_id}")
+    assert own_revoke.status_code == 200
+    assert own_revoke.json() == {"status": "revoked"}
+    assert client.get("/api/v1/auth/me").status_code == 401
