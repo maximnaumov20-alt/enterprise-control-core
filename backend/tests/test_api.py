@@ -3137,3 +3137,40 @@ def test_bulk_asset_update_audit_failure_rolls_back_all_assets(
         assert [event["action"] for event in history] == ["asset.created"]
 
     assert client.get("/api/v1/audit-events").json() == before_events
+
+
+
+def test_logout_revokes_all_access_tokens_for_current_user(client: TestClient) -> None:
+    response = client.post("/api/v1/auth/logout")
+    assert response.status_code == 200
+    assert response.json() == {"status": "logged_out", "revoked_sessions": "all"}
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+    login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    assert login.status_code == 200
+    client.headers.update({"Authorization": f"Bearer {login.json()['access_token']}"})
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+    events = client.get("/api/v1/audit-events")
+    assert events.status_code == 200
+    logout_events = [event for event in events.json() if event["action"] == "user.logged_out"]
+    assert len(logout_events) == 1
+    assert logout_events[0]["details"] == {}
+
+
+def test_logout_audit_failure_rolls_back_token_revocation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_logout_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "user.logged_out":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        raise AssertionError(f"Unexpected audit action: {action}")
+
+    monkeypatch.setattr(main, "record_audit", fail_logout_audit)
+    response = client.post("/api/v1/auth/logout")
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Logout conflicts with current account records"
+    assert client.get("/api/v1/auth/me").status_code == 200
