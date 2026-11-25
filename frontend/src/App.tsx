@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Asset, AssetInput, AssetStatus, AssetHistoryEvent, AuditEvent, CurrentUser, Department, Employee, EmployeeInput, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
+import { api, Asset, AssetInput, AssetStatus, AssetHistoryEvent, AuditEvent, AuthSession, CurrentUser, Department, Employee, EmployeeInput, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
 
 const emptyForm: AssetInput = {
   name: "", asset_tag: "", category: "Компьютер", manufacturer: "",
@@ -68,7 +68,10 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [section, setSection] = useState<"assets" | "software" | "maintenance" | "employees" | "users" | "audit">("assets");
+  const [section, setSection] = useState<"assets" | "software" | "maintenance" | "employees" | "users" | "audit" | "security">("assets");
+  const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionActionId, setSessionActionId] = useState<string | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeForm, setEmployeeForm] = useState<EmployeeInput>(emptyEmployeeForm);
@@ -344,6 +347,58 @@ export default function App() {
     catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить журнал"); }
   }
 
+  function currentSessionId(): string | null {
+    try {
+      if (!token) return null;
+      const encoded = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const payload = JSON.parse(atob(encoded));
+      return typeof payload.sid === "string" ? payload.sid : null;
+    } catch { return null; }
+  }
+
+  async function openSecurity() {
+    setSection("security");
+    setError("");
+    setSessionsLoading(true);
+    try { setAuthSessions(await api.authSessions()); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить активные сеансы"); }
+    finally { setSessionsLoading(false); }
+  }
+
+  async function revokeSession(session: AuthSession) {
+    const isCurrent = session.id === currentSessionId();
+    if (!window.confirm(isCurrent ? "Завершить текущий сеанс? Потребуется войти снова." : "Завершить выбранный сеанс?")) return;
+    setSessionActionId(session.id);
+    setError("");
+    try {
+      await api.revokeAuthSession(session.id);
+      if (isCurrent) {
+        setAccessToken(null);
+        setToken(null);
+        setCurrentUser(null);
+        resetForm();
+      } else {
+        setAuthSessions(await api.authSessions());
+        setNotice("Выбранный сеанс завершён.");
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось завершить сеанс"); }
+    finally { setSessionActionId(null); }
+  }
+
+  async function revokeAllSessions() {
+    if (!window.confirm("Завершить все сеансы этой учётной записи, включая текущий? Потребуется войти снова на всех устройствах.")) return;
+    setSessionActionId("all");
+    setError("");
+    try {
+      await api.logoutAll();
+      setAccessToken(null);
+      setToken(null);
+      setCurrentUser(null);
+      resetForm();
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось завершить все сеансы"); }
+    finally { setSessionActionId(null); }
+  }
+
   async function createUser(event: FormEvent) {
     event.preventDefault();
     setUserSaving(true);
@@ -511,6 +566,7 @@ export default function App() {
       <button type="button" className={`nav-item ${section === "assets" ? "active" : ""}`} onClick={() => setSection("assets")}><span>▦</span> Оборудование</button>
       <button type="button" className={`nav-item ${section === "software" ? "active" : ""}`} onClick={() => void openSoftware()}><span>▤</span> Лицензии ПО</button>
       <button type="button" className={`nav-item ${section === "maintenance" ? "active" : ""}`} onClick={() => void openMaintenance()}><span>⚙</span> Обслуживание</button>
+      <button type="button" className={`nav-item ${section === "security" ? "active" : ""}`} onClick={() => void openSecurity()}><span>⌑</span> Безопасность и сеансы</button>
       {currentUser.role !== "viewer" && <button type="button" className={`nav-item ${section === "employees" ? "active" : ""}`} onClick={() => void openEmployees()}><span>♙</span> Сотрудники</button>}
       {currentUser.role === "admin" && <>
         <button type="button" className={`nav-item ${section === "users" ? "active" : ""}`} onClick={() => void openUsers()}><span>♙</span> Пользователи</button>
@@ -546,7 +602,7 @@ export default function App() {
         <button className="primary" type="submit" disabled={passwordSaving}>{passwordSaving ? "Сохранение..." : "Изменить пароль"}</button>
       </form></div>}
       {notice && <div className="notice">{notice}</div>}
-      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "software" ? "Лицензии ПО" : section === "maintenance" ? "Обслуживание" : section === "employees" ? "Сотрудники" : section === "users" ? "Пользователи" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
+      <header className="topbar"><div className="crumb">Рабочее пространство <span>/</span> {section === "assets" ? "Оборудование" : section === "software" ? "Лицензии ПО" : section === "maintenance" ? "Обслуживание" : section === "employees" ? "Сотрудники" : section === "users" ? "Пользователи" : section === "security" ? "Безопасность и сеансы" : "Журнал действий"}</div><div className="top-user"><div><strong>{currentUser.full_name}</strong><small>{currentUser.organization_name} · {{ admin: "Администратор", editor: "Оператор", viewer: "Наблюдатель" }[currentUser.role]}</small></div><button className="subtle" onClick={() => void openSecurity()}>Сеансы</button><button className="subtle" onClick={() => { setError(""); setShowPasswordForm(true); }}>Сменить пароль</button><button className="subtle" onClick={logout}>Выйти</button></div></header>
       {section === "assets" && <>
       <section className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ АКТИВАМИ</div><h1>Оборудование</h1><p>Единый реестр IT-активов организации</p></div>{currentUser.role !== "viewer" && <button className="primary" onClick={() => { resetForm(); document.getElementById("asset-form")?.scrollIntoView({ behavior: "smooth" }); }}>＋ Добавить актив</button>}</section>
 
@@ -716,6 +772,34 @@ export default function App() {
           <div className="table-wrap"><table><thead><tr><th>ПОЛЬЗОВАТЕЛЬ</th><th>РОЛЬ</th><th>СТАТУС</th><th>ДЕЙСТВИЯ</th></tr></thead><tbody>
             {users.map(user => <tr key={user.id}><td><strong>{user.full_name}</strong><small>{user.email}</small></td><td><select value={user.role} disabled={user.id === currentUser.id} onChange={e => void changeUser(user, { role: e.target.value as UserRole })}><option value="viewer">Наблюдатель</option><option value="editor">Оператор</option><option value="admin">Администратор</option></select></td><td><span className={`status ${user.is_active ? "status-active" : "status-retired"}`}>{user.is_active ? "Активен" : "Отключён"}</span></td><td>{user.id === currentUser.id ? "Текущая учётная запись" : <button className="subtle" onClick={() => void changeUser(user, { is_active: !user.is_active })}>{user.is_active ? "Отключить" : "Включить"}</button>}</td></tr>)}
           </tbody></table></div>
+        </section>
+      </section>}
+
+      {section === "security" && <section className="admin-section">
+        <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ДОСТУПОМ</div><h1>Безопасность и сеансы</h1><p>Активные входы в эту учётную запись. Завершайте незнакомые или больше не используемые сеансы.</p></div><button className="subtle" onClick={() => void openSecurity()} disabled={sessionsLoading}>Обновить</button></div>
+        {error && <div className="alert">{error}</div>}
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Активные сеансы</h2><p>{authSessions.length} записей · сведения об устройстве и IP-адресе не собираются</p></div><button className="subtle" onClick={() => void revokeAllSessions()} disabled={sessionActionId !== null}>Завершить все сеансы</button></div>
+          {sessionsLoading ? <div className="empty">Загрузка сеансов...</div> : authSessions.length === 0 ? <div className="empty">Активных сеансов нет.</div> : <div className="table-wrap"><table><thead><tr><th>СОЗДАН</th><th>ПОСЛЕДНЯЯ АКТИВНОСТЬ</th><th>ИСТЕКАЕТ</th><th>СТАТУС</th><th>ДЕЙСТВИЕ</th></tr></thead><tbody>
+            {authSessions.map(session => {
+              const isCurrent = session.id === currentSessionId();
+              return <tr key={session.id}>
+                <td><strong>{new Date(session.created_at).toLocaleString()}</strong>{isCurrent && <small>Текущий сеанс</small>}</td>
+                <td>{new Date(session.last_seen_at).toLocaleString()}</td>
+                <td>{new Date(session.expires_at).toLocaleString()}</td>
+                <td><span className={`status ${session.revoked_at ? "status-retired" : "status-active"}`}>{session.revoked_at ? "Завершён" : "Активен"}</span></td>
+                <td>{session.revoked_at ? "—" : <button className="subtle" disabled={sessionActionId !== null} onClick={() => void revokeSession(session)}>{sessionActionId === session.id ? "Завершение..." : isCurrent ? "Завершить этот сеанс" : "Завершить"}</button>}</td>
+              </tr>;
+            })}
+          </tbody></table></div>}
+        </section>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Рекомендации</h2><p>Базовые меры защиты учётной записи</p></div></div>
+          <ul className="security-guidance">
+            <li>Используйте уникальный пароль длиной не менее 12 символов.</li>
+            <li>Завершайте сеансы на устройствах, которыми больше не пользуетесь.</li>
+            <li>При подозрении на компрометацию используйте «Завершить все сеансы» и смените пароль.</li>
+          </ul>
         </section>
       </section>}
 
