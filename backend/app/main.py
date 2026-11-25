@@ -726,17 +726,23 @@ def get_current_user(
     if session_id is not None:
         auth_session = session.get(AuthSession, session_id)
         now = datetime.now(timezone.utc)
+        expires_at = auth_session.expires_at if auth_session is not None else now
+        last_seen_at = auth_session.last_seen_at if auth_session is not None else now
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
         if (
             auth_session is None
             or auth_session.user_id != user.id
             or auth_session.organization_id != user.organization_id
             or auth_session.token_version != token_version
             or auth_session.revoked_at is not None
-            or auth_session.expires_at <= now
+            or expires_at <= now
         ):
             raise unauthorized
         user.current_auth_session_id = auth_session.id
-        if (now - auth_session.last_seen_at).total_seconds() >= 300:
+        if (now - last_seen_at).total_seconds() >= 300:
             auth_session.last_seen_at = now
             session.commit()
     return user
