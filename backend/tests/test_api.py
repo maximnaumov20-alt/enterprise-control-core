@@ -1551,6 +1551,63 @@ def test_asset_creation_audit_records_actor_and_consistent_entity_details(client
     }
 
 
+def test_department_delete_audit_retains_department_snapshot(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/departments",
+        json={"name": "Retired Operations", "code": "OPS-RETIRED"},
+    )
+    assert created.status_code == 201
+    department_id = created.json()["id"]
+
+    deleted = client.delete(f"/api/v1/departments/{department_id}")
+    assert deleted.status_code == 204
+
+    events = client.get("/api/v1/audit-events")
+    assert events.status_code == 200
+    matching = [
+        event for event in events.json()
+        if event["action"] == "department.deleted"
+        and event["entity_id"] == str(department_id)
+    ]
+    assert len(matching) == 1
+    assert matching[0]["details"] == {
+        "name": "Retired Operations",
+        "code": "OPS-RETIRED",
+    }
+
+
+def test_employee_delete_audit_retains_employee_snapshot(client: TestClient) -> None:
+    created = client.post(
+        "/api/v1/employees",
+        json={
+            "employee_number": "EMP-AUDIT-SNAPSHOT-001",
+            "full_name": "Former Operations Lead",
+            "job_title": "Operations Lead",
+        },
+    )
+    assert created.status_code == 201
+    employee = created.json()
+
+    deleted = client.delete(f"/api/v1/employees/{employee['id']}")
+    assert deleted.status_code == 204
+
+    events = client.get("/api/v1/audit-events")
+    assert events.status_code == 200
+    matching = [
+        event for event in events.json()
+        if event["action"] == "employee.deleted"
+        and event["entity_id"] == str(employee["id"])
+    ]
+    assert len(matching) == 1
+    assert matching[0]["details"] == {
+        "employee_number": "EMP-AUDIT-SNAPSHOT-001",
+        "full_name": "Former Operations Lead",
+        "department_id": None,
+        "job_title": "Operations Lead",
+        "is_active": True,
+    }
+
+
 def test_failed_department_delete_does_not_create_audit_event(client: TestClient) -> None:
     department = client.post(
         "/api/v1/departments",

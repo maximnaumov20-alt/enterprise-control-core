@@ -1371,7 +1371,10 @@ def delete_department(
     if assigned_employee_id is not None:
         raise HTTPException(status_code=409, detail="Department is assigned to employees")
     try:
-        record_audit(session, admin, "department.deleted", "department", department.id)
+        record_audit(
+            session, admin, "department.deleted", "department", department.id,
+            {"name": department.name, "code": department.code},
+        )
         session.delete(department)
         session.commit()
     except IntegrityError:
@@ -1504,7 +1507,16 @@ def delete_employee(
     if employee is None:
         raise HTTPException(status_code=404, detail="Employee not found")
     try:
-        record_audit(session, admin, "employee.deleted", "employee", employee.id)
+        record_audit(
+            session, admin, "employee.deleted", "employee", employee.id,
+            {
+                "employee_number": employee.employee_number,
+                "full_name": employee.full_name,
+                "department_id": employee.department_id,
+                "job_title": employee.job_title,
+                "is_active": employee.is_active,
+            },
+        )
         session.delete(employee)
         session.commit()
     except IntegrityError:
