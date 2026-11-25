@@ -1023,6 +1023,65 @@ def test_maintenance_request_creation_assignment_and_resolution(client: TestClie
     assert resolved.json()["resolved_at"] is not None
 
 
+def test_maintenance_update_audit_records_safe_before_after_values(client: TestClient) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Audit server", "asset_tag": "MAINT-AUDIT-SAFE-001", "category": "Server"},
+    ).json()
+    created = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset["id"],
+            "title": "Confidential maintenance title",
+            "description": "Confidential maintenance description",
+            "priority": "normal",
+        },
+    )
+    assert created.status_code == 201
+    request_record = created.json()
+    users = client.get("/api/v1/users").json()
+    editor = next(user for user in users if user["email"] == "editor.a@example.com")
+
+    updated = client.patch(
+        f"/api/v1/maintenance-requests/{request_record['id']}",
+        json={
+            "expected_version": request_record["version"],
+            "title": "Updated confidential title",
+            "description": "Updated confidential description",
+            "priority": "urgent",
+            "status": "in_progress",
+            "assigned_to_user_id": editor["id"],
+        },
+    )
+    assert updated.status_code == 200
+
+    events = client.get("/api/v1/audit-events").json()
+    event = next(
+        item for item in events
+        if item["action"] == "maintenance_request.updated"
+        and item["entity_id"] == str(request_record["id"])
+    )
+    assert event["details"] == {
+        "fields": [
+            "assigned_to_user_id",
+            "description",
+            "priority",
+            "status",
+            "title",
+        ],
+        "changes": {
+            "priority": {"old": "normal", "new": "urgent"},
+            "status": {"old": "open", "new": "in_progress"},
+            "assigned_to_user_id": {"old": None, "new": editor["id"]},
+        },
+    }
+    serialized_details = str(event["details"])
+    assert "Confidential maintenance title" not in serialized_details
+    assert "Updated confidential title" not in serialized_details
+    assert "Confidential maintenance description" not in serialized_details
+    assert "Updated confidential description" not in serialized_details
+
+
 def test_maintenance_requests_are_private_to_requester_and_organization(client: TestClient) -> None:
     asset = client.post(
         "/api/v1/assets",

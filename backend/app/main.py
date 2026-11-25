@@ -1666,8 +1666,22 @@ def update_maintenance_request(
         if getattr(request_record, field) != value
     }
     audit_fields = set(changes)
+    audit_changes = {}
+    for field, new_value in changes.items():
+        # Free-text maintenance content can contain personal or confidential data.
+        # Record only that it changed; retain before/after values for controlled fields.
+        if field in {"priority", "status", "assigned_to_user_id"}:
+            old_value = getattr(request_record, field)
+            audit_changes[field] = {
+                "old": old_value.value if isinstance(old_value, Enum) else old_value,
+                "new": new_value.value if isinstance(new_value, Enum) else new_value,
+            }
     if resolved_at_changed:
         audit_fields.add("resolved_at")
+        audit_changes["resolved_at"] = {
+            "old": request_record.resolved_at.isoformat() if request_record.resolved_at else None,
+            "new": resolved_at.isoformat() if resolved_at else None,
+        }
         request_record.resolved_at = resolved_at
     if changes or resolved_at_changed:
         try:
@@ -1675,7 +1689,10 @@ def update_maintenance_request(
                 setattr(request_record, field, value)
             record_audit(
                 session, user, "maintenance_request.updated", "maintenance_request",
-                request_record.id, {"fields": sorted(audit_fields)},
+                request_record.id, {
+                    "fields": sorted(audit_fields),
+                    "changes": audit_changes,
+                },
             )
             session.commit()
         except (IntegrityError, StaleDataError):
