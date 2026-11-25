@@ -26,7 +26,7 @@ MAX_COUNTER = (1 << 64) - 1
 def _validate_parameters(period: int, digits: int) -> None:
     if isinstance(period, bool) or not isinstance(period, int) or period < 1:
         raise ValueError("TOTP period must be a positive integer")
-    if isinstance(digits, bool) or digits not in (6, 8):
+    if isinstance(digits, bool) or not isinstance(digits, int) or digits not in (6, 8):
         raise ValueError("TOTP digits must be 6 or 8")
 
 
