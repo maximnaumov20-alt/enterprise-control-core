@@ -134,11 +134,23 @@ export default function App() {
     } finally { setLoginLoading(false); }
   }
 
-  function logout() {
-    setAccessToken(null);
-    setToken(null);
-    setCurrentUser(null);
-    resetForm();
+  async function logout() {
+    setError("");
+    let revocationConfirmed = false;
+    try {
+      await api.logout();
+      revocationConfirmed = true;
+    } catch {
+      // Always clear this browser's in-memory credentials, even if the API is unreachable.
+    } finally {
+      setAccessToken(null);
+      setToken(null);
+      setCurrentUser(null);
+      resetForm();
+    }
+    if (!revocationConfirmed) {
+      setError("Локальный выход выполнен, но серверный отзыв токена не подтверждён. Проверьте соединение и завершите активные сессии повторно.");
+    }
   }
 
   async function submitPasswordChange(event: FormEvent) {
