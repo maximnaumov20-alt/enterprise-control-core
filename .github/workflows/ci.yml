@@ -41,6 +41,8 @@ jobs:
           python scripts/tests/test_run_backup.py
           python scripts/tests/test_upload_backup_s3.py
           python scripts/tests/test_download_backup_s3.py
+          python scripts/tests/test_verify_backup_postgres.py
+          python scripts/tests/test_check_backup_freshness.py
 
       - name: Run API tests
         working-directory: backend
