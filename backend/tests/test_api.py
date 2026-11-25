@@ -2223,6 +2223,52 @@ def test_maintenance_update_integrity_error_rolls_back_without_audit(
     assert audit_ids == existing_audit_ids
 
 
+def test_maintenance_resolution_audit_failure_rolls_back_status_and_timestamp(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset = client.post(
+        "/api/v1/assets",
+        json={"name": "Resolution rollback host", "asset_tag": "MAINT-RESOLVE-ROLLBACK-001", "category": "Server"},
+    )
+    assert asset.status_code == 201
+    created = client.post(
+        "/api/v1/maintenance-requests",
+        json={
+            "asset_id": asset.json()["id"],
+            "title": "Resolution rollback request",
+            "description": "Verify status and resolved timestamp remain atomic.",
+        },
+    )
+    assert created.status_code == 201
+    request_record = created.json()
+    existing_audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    original_record_audit = main.record_audit
+
+    def fail_maintenance_update_audit(session, user, action, entity_type, entity_id, details=None):
+        if action == "maintenance_request.updated":
+            raise IntegrityError("audit insert", {}, Exception("simulated integrity conflict"))
+        return original_record_audit(session, user, action, entity_type, entity_id, details)
+
+    monkeypatch.setattr(main, "record_audit", fail_maintenance_update_audit)
+    response = client.patch(
+        f"/api/v1/maintenance-requests/{request_record['id']}",
+        json={"expected_version": request_record["version"], "status": "resolved"},
+    )
+
+    assert response.status_code == 409
+    stored = client.get(f"/api/v1/maintenance-requests/{request_record['id']}")
+    assert stored.status_code == 200
+    assert stored.json()["status"] == "open"
+    assert stored.json()["resolved_at"] is None
+    assert stored.json()["version"] == request_record["version"]
+    audit_ids = {
+        event["id"] for event in client.get("/api/v1/audit-events").json()
+    }
+    assert audit_ids == existing_audit_ids
+
+
 def test_employee_create_integrity_error_rolls_back_without_audit(
     client: TestClient, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
