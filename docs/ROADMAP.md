@@ -34,6 +34,7 @@
 - [x] Container image vulnerability scanning for unfixed critical vulnerabilities with Trivy
 - [x] Automated PostgreSQL integration coverage in Docker Compose CI (API smoke tests, tenant-backed records, and encrypted backup/restore recovery)
 - [ ] Installation and upgrade documentation
+- [ ] Implement optional TOTP MFA with encrypted secrets, replay prevention and one-time recovery codes (design: [MFA implementation](architecture/mfa-implementation.md); no MFA code is implemented yet)
 - [ ] Independent security review
 
 ## Licensing and release governance
