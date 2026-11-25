@@ -3174,3 +3174,79 @@ def test_logout_audit_failure_rolls_back_token_revocation(
     assert response.status_code == 409
     assert response.json()["detail"] == "Logout conflicts with current account records"
     assert client.get("/api/v1/auth/me").status_code == 200
+
+
+def test_login_creates_persisted_session_and_current_session_can_be_revoked(client: TestClient) -> None:
+    login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+
+    sessions = client.get("/api/v1/auth/sessions")
+    assert sessions.status_code == 200
+    assert len(sessions.json()) == 1
+    auth_session = sessions.json()[0]
+    assert auth_session["revoked_at"] is None
+    assert auth_session["expires_at"]
+
+    revoked = client.delete(f"/api/v1/auth/sessions/{auth_session['id']}")
+    assert revoked.status_code == 200
+    assert revoked.json() == {"status": "revoked"}
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_logout_revokes_only_the_current_persisted_session(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    ).json()["access_token"]
+    second = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    ).json()["access_token"]
+
+    client.headers.update({"Authorization": f"Bearer {first}"})
+    sessions = client.get("/api/v1/auth/sessions").json()
+    assert len(sessions) == 2
+    assert client.post("/api/v1/auth/logout").status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+    client.headers.update({"Authorization": f"Bearer {second}"})
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+
+def test_session_revocation_is_scoped_to_authenticated_user_and_tenant(client: TestClient) -> None:
+    login = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    )
+    session_id = login.json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {session_id}"})
+    auth_session_id = client.get("/api/v1/auth/sessions").json()[0]["id"]
+
+    use_role(client, "other_admin")
+    response = client.delete(f"/api/v1/auth/sessions/{auth_session_id}")
+    assert response.status_code == 404
+
+
+
+def test_logout_all_revokes_every_persisted_session_and_invalidates_tokens(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    ).json()["access_token"]
+    second = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    ).json()["access_token"]
+
+    client.headers.update({"Authorization": f"Bearer {first}"})
+    response = client.post("/api/v1/auth/logout-all")
+    assert response.status_code == 200
+    assert response.json()["revoked_sessions"] == "all"
+
+    client.headers.update({"Authorization": f"Bearer {second}"})
+    assert client.get("/api/v1/auth/me").status_code == 401

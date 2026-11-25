@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Callable
+from uuid import uuid4
 
 import jwt
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
@@ -227,6 +228,31 @@ class User(Base):
     )
 
     __mapper_args__ = {"version_id_col": version}
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "user_id"],
+            ["users.organization_id", "users.id"],
+            ondelete="CASCADE",
+            name="fk_auth_sessions_user_same_org",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Asset(Base):
@@ -625,6 +651,16 @@ class TokenRead(BaseModel):
     expires_in: int
 
 
+class AuthSessionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    expires_at: datetime
+    last_seen_at: datetime
+    revoked_at: datetime | None
+
+
 class CurrentUserRead(UserRead):
     organization_name: str
 
@@ -637,7 +673,7 @@ def get_session():
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
-def create_access_token(user: User) -> str:
+def create_access_token(user: User, session_id: str | None = None) -> str:
     if not SECRET_KEY:
         raise HTTPException(
             status_code=503,
@@ -653,6 +689,8 @@ def create_access_token(user: User) -> str:
         "iss": "ecc-api",
         "aud": "ecc-client",
     }
+    if session_id is not None:
+        payload["sid"] = session_id
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
@@ -679,11 +717,36 @@ def get_current_user(
             raise unauthorized
         user_id = int(payload["sub"])
         token_version = int(payload["ver"])
+        session_id = payload.get("sid")
+        if session_id is not None and not isinstance(session_id, str):
+            raise unauthorized
     except (jwt.InvalidTokenError, KeyError, ValueError, TypeError):
         raise unauthorized
     user = session.get(User, user_id)
     if user is None or not user.is_active or user.token_version != token_version:
         raise unauthorized
+    if session_id is not None:
+        auth_session = session.get(AuthSession, session_id)
+        now = datetime.now(timezone.utc)
+        expires_at = auth_session.expires_at if auth_session is not None else now
+        last_seen_at = auth_session.last_seen_at if auth_session is not None else now
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+        if (
+            auth_session is None
+            or auth_session.user_id != user.id
+            or auth_session.organization_id != user.organization_id
+            or auth_session.token_version != token_version
+            or auth_session.revoked_at is not None
+            or expires_at <= now
+        ):
+            raise unauthorized
+        user.current_auth_session_id = auth_session.id
+        if (now - last_seen_at).total_seconds() >= 300:
+            auth_session.last_seen_at = now
+            session.commit()
     return user
 
 
@@ -807,8 +870,24 @@ def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    now = datetime.now(timezone.utc)
+    auth_session = AuthSession(
+        id=str(uuid4()),
+        organization_id=user.organization_id,
+        user_id=user.id,
+        token_version=user.token_version,
+        created_at=now,
+        last_seen_at=now,
+        expires_at=now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
+    )
+    session.add(auth_session)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=503, detail="Unable to create an authenticated session")
     return TokenRead(
-        access_token=create_access_token(user),
+        access_token=create_access_token(user, auth_session.id),
         expires_in=ACCESS_TOKEN_MINUTES * 60,
     )
 
@@ -835,19 +914,81 @@ def change_password(
     return {"status": "password_updated"}
 
 
+@app.get("/api/v1/auth/sessions", response_model=list[AuthSessionRead], tags=["authentication"])
+def list_auth_sessions(session: SessionDep, user: CurrentUser):
+    return list(session.scalars(
+        select(AuthSession)
+        .where(
+            AuthSession.user_id == user.id,
+            AuthSession.organization_id == user.organization_id,
+        )
+        .order_by(AuthSession.created_at.desc())
+    ).all())
+
+
+@app.delete("/api/v1/auth/sessions/{session_id}", tags=["authentication"])
+def revoke_auth_session(session_id: str, session: SessionDep, user: CurrentUser):
+    auth_session = session.scalar(select(AuthSession).where(
+        AuthSession.id == session_id,
+        AuthSession.user_id == user.id,
+        AuthSession.organization_id == user.organization_id,
+    ))
+    if auth_session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if auth_session.revoked_at is None:
+        auth_session.revoked_at = datetime.now(timezone.utc)
+        try:
+            record_audit(session, user, "auth_session.revoked", "auth_session", auth_session.id)
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="Session revocation conflicts with current records")
+    return {"status": "revoked"}
+
+
 @app.post("/api/v1/auth/logout", tags=["authentication"])
 def logout(session: SessionDep, user: CurrentUser):
-    """Revoke all access tokens for the current account."""
-    try:
+    """Revoke only the authenticated browser session."""
+    session_id = getattr(user, "current_auth_session_id", None)
+    if session_id is None:
+        # Compatibility for pre-session tokens: invalidate the account's tokens.
         user.token_version += 1
-        record_audit(session, user, "user.logged_out", "user", user.id)
+        action = "user.logged_out"
+        entity_type = "user"
+        entity_id = user.id
+    else:
+        auth_session = session.get(AuthSession, session_id)
+        if auth_session is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired authentication token")
+        auth_session.revoked_at = datetime.now(timezone.utc)
+        action = "auth_session.logged_out"
+        entity_type = "auth_session"
+        entity_id = session_id
+    try:
+        record_audit(session, user, action, entity_type, entity_id)
         session.commit()
     except IntegrityError:
         session.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="Logout conflicts with current account records",
-        )
+        raise HTTPException(status_code=409, detail="Logout conflicts with current account records")
+    return {"status": "logged_out", "revoked_sessions": "current" if session_id else "all"}
+
+
+@app.post("/api/v1/auth/logout-all", tags=["authentication"])
+def logout_all(session: SessionDep, user: CurrentUser):
+    """Revoke every session and invalidate legacy access tokens for the account."""
+    now = datetime.now(timezone.utc)
+    user.token_version += 1
+    session.query(AuthSession).filter(
+        AuthSession.user_id == user.id,
+        AuthSession.organization_id == user.organization_id,
+        AuthSession.revoked_at.is_(None),
+    ).update({AuthSession.revoked_at: now}, synchronize_session=False)
+    try:
+        record_audit(session, user, "user.logged_out_all", "user", user.id)
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Logout conflicts with current account records")
     return {"status": "logged_out", "revoked_sessions": "all"}
 
 
