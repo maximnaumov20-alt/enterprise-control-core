@@ -659,3 +659,4 @@ jobs:
           python scripts/tests/test_validate_recovery_report.py
           python scripts/tests/test_recovery_drill_history.py
           python scripts/tests/test_archive_recovery_reports_s3.py
+          python scripts/tests/test_dependency_documentation.py

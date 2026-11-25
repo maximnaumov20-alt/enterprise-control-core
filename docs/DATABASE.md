@@ -8,11 +8,15 @@ From the repository root:
 
 ```bash
 cd backend
-python -m pip install -r requirements.txt
+python -m venv .venv
+# macOS/Linux:
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install --require-hashes -r requirements-dev.lock
 alembic upgrade head
 ```
 
-Set `DATABASE_URL` before running Alembic to target PostgreSQL or another supported SQLAlchemy database. If it is not set, local development uses `sqlite:///./data/ecc.db`.
+For a runtime-only installation, use `python -m pip install --require-hashes -r requirements-runtime.lock` instead of the development lock. Both lock files are generated from their corresponding `.in` inputs. Set `DATABASE_URL` before running Alembic to target PostgreSQL or another supported SQLAlchemy database. If it is not set, local development uses `sqlite:///./data/ecc.db`.
 
 To inspect the current revision:
 
