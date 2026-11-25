@@ -199,6 +199,21 @@ jobs:
           curl --fail http://localhost:5173/docs
           curl --fail http://localhost:5173/openapi.json
           curl --fail http://localhost:5173/
+
+          # Assert strict browser policy on the SPA without breaking Swagger UI.
+          spa_headers=$(curl --fail --silent --show-error -D - -o /dev/null http://localhost:5173/)
+          printf '%s\\n' "$spa_headers" | grep -qi '^Content-Security-Policy:'
+          printf '%s\\n' "$spa_headers" | grep -qi '^Permissions-Policy:'
+          if printf '%s\\n' "$spa_headers" | grep -Eqi "unsafe-inline|cdn\\.jsdelivr\\.net"; then
+            echo "SPA CSP unexpectedly permits inline code or a third-party CDN" >&2
+            exit 1
+          fi
+          docs_headers=$(curl --fail --silent --show-error -D - -o /dev/null http://localhost:5173/docs)
+          if printf '%s\\n' "$docs_headers" | grep -qi '^Content-Security-Policy:'; then
+            echo "SPA-only CSP unexpectedly applies to Swagger UI" >&2
+            exit 1
+          fi
+          printf '%s\\n' "$docs_headers" | grep -qi '^X-Content-Type-Options:'
           curl --fail http://localhost:5173/health
           auth_status=$(curl --silent --output /dev/null --write-out "%{http_code}" http://localhost:5173/api/v1/assets)
           test "$auth_status" = "401"
