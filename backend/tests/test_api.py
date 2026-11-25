@@ -3231,3 +3231,22 @@ def test_session_revocation_is_scoped_to_authenticated_user_and_tenant(client: T
     response = client.delete(f"/api/v1/auth/sessions/{auth_session_id}")
     assert response.status_code == 404
 
+
+
+def test_logout_all_revokes_every_persisted_session_and_invalidates_tokens(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    ).json()["access_token"]
+    second = client.post(
+        "/api/v1/auth/token",
+        data={"username": "admin.a@example.com", "password": "test-password-admin-123"},
+    ).json()["access_token"]
+
+    client.headers.update({"Authorization": f"Bearer {first}"})
+    response = client.post("/api/v1/auth/logout-all")
+    assert response.status_code == 200
+    assert response.json()["revoked_sessions"] == "all"
+
+    client.headers.update({"Authorization": f"Bearer {second}"})
+    assert client.get("/api/v1/auth/me").status_code == 401
