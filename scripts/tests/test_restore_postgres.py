@@ -64,7 +64,8 @@ while (($#)); do
   esac
 done
 [[ -n "$output" && -n "$input" ]]
-cat "$input" > "$output"
+[[ -s "$input" ]]
+printf '%s' "valid-postgres-archive-fixture" > "$output"
 '''
 
 class RestorePostgresTests(unittest.TestCase):
