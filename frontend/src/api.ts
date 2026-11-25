@@ -141,6 +141,14 @@ export interface TokenResponse {
   expires_in: number;
 }
 
+export interface AuthSession {
+  id: string;
+  created_at: string;
+  expires_at: string;
+  last_seen_at: string;
+  revoked_at: string | null;
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || "";
 let accessToken: string | null = null;
 
@@ -209,6 +217,9 @@ export const api = {
     }),
   me: () => request<CurrentUser>("/api/v1/auth/me"),
   logout: () => request<{ status: string; revoked_sessions: string }>("/api/v1/auth/logout", { method: "POST" }),
+  logoutAll: () => request<{ status: string; revoked_sessions: string }>("/api/v1/auth/logout-all", { method: "POST" }),
+  authSessions: () => request<AuthSession[]>("/api/v1/auth/sessions"),
+  revokeAuthSession: (id: string) => request<{ status: string }>(`/api/v1/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
   changePassword: (current_password: string, new_password: string) =>
     request<{ status: string }>("/api/v1/auth/change-password", {
       method: "POST",
