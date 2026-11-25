@@ -747,7 +747,37 @@ async def disable_api_response_caching(request: Request, call_next):
 
 @app.get("/health", tags=["system"])
 def health():
+    """Liveness probe: confirms that the API process is responding."""
     return {"status": "ok", "service": "enterprise-control-center-api"}
+
+
+@app.get("/ready", tags=["system"])
+def readiness():
+    """Readiness probe: checks required runtime dependencies without exposing internals."""
+    checks = {"database": "ok", "redis": "not_configured"}
+
+    try:
+        with engine.connect() as connection:
+            connection.execute(select(1))
+    except Exception:
+        checks["database"] = "unavailable"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"status": "not_ready", "checks": checks},
+        )
+
+    if redis_client is not None:
+        try:
+            redis_client.ping()
+            checks["redis"] = "ok"
+        except Exception:
+            checks["redis"] = "unavailable"
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"status": "not_ready", "checks": checks},
+            )
+
+    return {"status": "ready", "checks": checks}
 
 
 @app.post("/api/v1/auth/token", response_model=TokenRead, tags=["authentication"])
