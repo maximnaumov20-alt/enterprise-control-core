@@ -21,6 +21,8 @@ import sys
 args = sys.argv[1:]
 state_path = pathlib.Path(os.environ["FAKE_AWS_STATE"])
 if args[:2] == ["s3", "cp"] and not args[2].startswith("s3://"):
+    if os.environ.get("FAKE_AWS_MODE") == "upload-failure":
+        raise SystemExit(42)
     source = pathlib.Path(args[2])
     metadata_index = args.index("--metadata")
     checksum = args[metadata_index + 1].split("=", 1)[1]
@@ -38,6 +40,9 @@ if args[:2] == ["s3", "cp"] and args[2].startswith("s3://"):
     payload = pathlib.Path(state["source"]).read_bytes()
     if os.environ.get("FAKE_AWS_MODE") == "bad-readback":
         payload = payload + b"corruption"
+    if os.environ.get("FAKE_AWS_MODE") == "partial-readback":
+        destination.write_bytes(b"partial")
+        raise SystemExit(42)
     destination.write_bytes(payload)
     raise SystemExit(0)
 if args[:2] == ["s3api", "head-object"]:
@@ -110,6 +115,21 @@ class S3UploaderTests(unittest.TestCase):
         result = self.run_uploader()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Remote read-back verification failed", result.stderr)
+
+    def test_transient_upload_failure_does_not_start_verification(self) -> None:
+        self.env["FAKE_AWS_MODE"] = "upload-failure"
+        result = self.run_uploader()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.state.exists())
+
+    def test_cleans_partial_readback_after_transient_failure(self) -> None:
+        temp_dir = self.base / "tmp"
+        temp_dir.mkdir()
+        self.env["TMPDIR"] = str(temp_dir)
+        self.env["FAKE_AWS_MODE"] = "partial-readback"
+        result = self.run_uploader()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(temp_dir.glob("ecc-s3-verify.*")), [])
 
     def test_plaintext_dump_is_rejected_before_aws_call(self) -> None:
         plaintext = self.base / "backup.dump"
