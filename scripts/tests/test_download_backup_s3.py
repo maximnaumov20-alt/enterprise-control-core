@@ -42,6 +42,8 @@ if args[:2] == ["s3", "cp"] and args[2].startswith("s3://"):
         raise SystemExit(42)
     else:
         destination.write_bytes(payload)
+        if os.environ.get("FAKE_AWS_MODE") == "create-output-during-download":
+            pathlib.Path(os.environ["FAKE_AWS_OUTPUT"]).write_bytes(b"concurrent-file")
     raise SystemExit(0)
 print("unexpected fake AWS invocation: " + repr(args), file=sys.stderr)
 raise SystemExit(90)
@@ -66,6 +68,7 @@ class S3DownloaderTests(unittest.TestCase):
         self.env.update({
             "PATH": str(self.bin_dir) + os.pathsep + self.env.get("PATH", ""),
             "FAKE_AWS_SOURCE": str(self.source),
+            "FAKE_AWS_OUTPUT": str(self.output),
         })
 
     def run_downloader(self, uri: str = "s3://ecc-test-bucket/nightly/backup.dump.age"):
@@ -112,6 +115,13 @@ class S3DownloaderTests(unittest.TestCase):
         result = self.run_downloader()
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.output.parent.glob(".ecc-download.*")), [])
+
+    def test_refuses_to_overwrite_file_created_during_download(self) -> None:
+        self.env["FAKE_AWS_MODE"] = "create-output-during-download"
+        result = self.run_downloader()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.output.read_bytes(), b"concurrent-file")
         self.assertEqual(list(self.output.parent.glob(".ecc-download.*")), [])
 
     def test_rejects_non_archive_uri_before_aws_call(self) -> None:
