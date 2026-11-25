@@ -159,5 +159,23 @@ class RestorePostgresTests(unittest.TestCase):
         self.assertEqual(list(self.tmpdir.glob("ecc-restore.*")), [])
 
 
+    def test_encrypted_backup_requires_readable_identity_before_docker_access(self) -> None:
+        encrypted = self.root / "backup.dump.age"
+        encrypted.write_bytes(b"encrypted fixture")
+        self.env.pop("ECC_BACKUP_AGE_IDENTITY")
+        result = self.run_restore(encrypted)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("requires readable ECC_BACKUP_AGE_IDENTITY", result.stderr)
+        self.assertFalse(self.capture.exists())
+        self.assertEqual(list(self.tmpdir.glob("ecc-restore.*")), [])
+
+    def test_backup_path_with_spaces_is_restored(self) -> None:
+        spaced_backup = self.root / "backup archive with spaces.dump"
+        spaced_backup.write_bytes(ARCHIVE)
+        result = self.run_restore(spaced_backup)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.capture.read_bytes(), ARCHIVE)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
