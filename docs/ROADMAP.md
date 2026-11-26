@@ -29,16 +29,16 @@
 - [ ] Structured logs and monitoring
 - [x] Baseline frontend security headers
 - [x] Login rate limiting with shared Redis counters
-- [ ] Additional API security headers and deployment hardening (API responses now set `Cache-Control: no-store` and `Pragma: no-cache`; HTTPS, secrets management, network controls and remaining deployment hardening are still pending)
+- [ ] Additional API security headers and deployment hardening (API responses set `Cache-Control: no-store` and `Pragma: no-cache`; HTTPS, secrets management, network controls and remaining deployment hardening are still pending)
 - [x] Python and npm dependency vulnerability scanning in GitHub Actions (`pip-audit`, `npm audit`)
 - [x] Container image vulnerability scanning for unfixed critical vulnerabilities with Trivy
 - [x] Automated PostgreSQL integration coverage in Docker Compose CI (API smoke tests, tenant-backed records, and encrypted backup/restore recovery)
 - [ ] Installation and upgrade documentation
-- [ ] Implement optional TOTP MFA with encrypted secrets, replay prevention and one-time recovery codes (design: [MFA implementation](architecture/mfa-implementation.md); no MFA code is implemented yet)
+- [x] TOTP MFA implementation in the current stacked pull-request series: encrypted secret storage, startup key validation, enrollment and login challenge lifecycle, replay prevention, one-time recovery codes, rate limiting, frontend QR/enrollment/challenge flow, and PostgreSQL concurrency/E2E coverage (PRs #141, #144, #145, #146; not yet merged into `main`)
 - [ ] Independent security review
 
 ## Licensing and release governance
-- [ ] Complete third-party dependency and bundled-asset licence/provenance audit (initial audit register and release checklist added; lockfiles, release SBOM and verified notices still pending)
+- [ ] Complete third-party dependency and bundled-asset licence/provenance audit (initial audit register and release checklist added; verified notices and release archival remain pending)
 - [ ] Complete dependency and release SBOM governance (hashed runtime and development Python lockfiles are generated; Docker, CI and security audit consume the split locks; CI publishes provisional CycloneDX SBOM artifacts for both container images; source inventory, verified notices and release archival remain pending)
 - [ ] Finalize Community licence, commercial agreement and contributor terms with qualified legal review
 
@@ -49,4 +49,4 @@
 - [ ] Enterprise integrations and reporting
 - [ ] Support and subscription operations
 
-Commercial functionality must not be represented as implemented until it exists, is tested and is documented.
+Commercial functionality must not be represented as implemented until it exists, is tested and is documented. A checked item in the MFA section describes code in the open PR stack, not a released or production-approved feature.
