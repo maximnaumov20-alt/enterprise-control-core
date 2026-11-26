@@ -213,7 +213,7 @@ def confirm_enrollment(
     ).values(
         status="enabled", enabled_at=now, pending_expires_at=None,
         last_used_counter=counter, updated_at=now,
-    ))
+    ).execution_options(synchronize_session=False))
     if result.rowcount != 1:
         session.rollback()
         raise HTTPException(status_code=409, detail="Enrollment changed; start again")
@@ -290,7 +290,7 @@ def verify_challenge(payload: ChallengeVerify, request: Request, session: Sessio
         MFAChallenge.consumed_at.is_(None),
         MFAChallenge.expires_at > now,
         MFAChallenge.attempts < MAX_CHALLENGE_ATTEMPTS,
-    ).values(consumed_at=now))
+    ).values(consumed_at=now).execution_options(synchronize_session=False))
     if consumed.rowcount != 1:
         session.rollback()
         raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge")
