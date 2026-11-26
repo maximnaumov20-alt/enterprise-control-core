@@ -1,10 +1,23 @@
 import { createHmac } from "node:crypto";
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, request as playwrightRequest, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const baseURL = process.env.ECC_E2E_BASE_URL || "http://127.0.0.1:5173";
 const adminEmail = process.env.ECC_ADMIN_EMAIL || "e2e-admin@example.test";
 const adminPassword = process.env.ECC_ADMIN_PASSWORD || "e2e-admin-password-123456";
 let adminTotpSecret = "";
+let lastUsedTotpCounter = -1;
+
+function currentTotpCounter(): number {
+  return Math.floor(Date.now() / 1000 / 30);
+}
+
+async function waitForFreshTotp(): Promise<string> {
+  while (currentTotpCounter() <= lastUsedTotpCounter) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  lastUsedTotpCounter = currentTotpCounter();
+  return totp(adminTotpSecret);
+}
 
 function decodeBase32(value: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -49,14 +62,15 @@ async function adminToken(request: APIRequestContext): Promise<string> {
   expect(result.mfa_required).toBeTruthy();
   expect(result.challenge_token).toBeTruthy();
   const verified = await request.post(baseURL + "/api/v1/auth/mfa/challenge/verify", {
-    data: { challenge_token: result.challenge_token, code: totp(adminTotpSecret) },
+    data: { challenge_token: result.challenge_token, code: await waitForFreshTotp() },
   });
   expect(verified.ok(), "MFA challenge verification failed: " + verified.status()).toBeTruthy();
   const body = await verified.json() as { access_token: string };
   return body.access_token;
 }
 
-test.beforeAll(async ({ request }) => {
+test.beforeAll(async () => {
+  const request = await playwrightRequest.newContext({ baseURL });
   const initial = await rawPasswordLogin(request, adminEmail, adminPassword);
   expect(initial.access_token, "fresh E2E database should start with MFA disabled").toBeTruthy();
   const headers = { Authorization: "Bearer " + initial.access_token };
@@ -84,7 +98,7 @@ async function loginThroughUi(page: Page, email: string, password: string, secre
 
   if (secret) {
     await expect(page.getByRole("heading", { name: "Подтверждение входа" })).toBeVisible();
-    await page.getByLabel("Код подтверждения").fill(totp(secret));
+    if (secret) {\n      const code = await waitForFreshTotp();\n      await page.getByLabel("Код подтверждения").fill(code);\n    }
     await page.getByRole("button", { name: "Подтвердить и войти" }).click();
   }
   await expect(page.getByRole("heading", { name: "Оборудование" })).toBeVisible();
