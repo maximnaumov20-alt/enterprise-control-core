@@ -249,7 +249,7 @@ def test_tenant_owned_resources_cannot_be_read_or_mutated_across_organizations(
             json={
                 "asset_ids": [asset["id"]],
                 "versions": {str(asset["id"]): asset["version"]},
-                "status": "maintenance",
+                "status": "in_repair",
             },
         ),
         404,
