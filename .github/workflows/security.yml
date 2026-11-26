@@ -86,7 +86,7 @@ jobs:
             aquasec/trivy:0.58.2 image \
             --scanners vuln \
             --ignore-unfixed \
-            --severity CRITICAL \
+            --severity HIGH,CRITICAL \
             --exit-code 1 \
             ecc-frontend:security
 
