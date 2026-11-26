@@ -112,3 +112,64 @@ The PR #146 head subsequently advanced to `8b6350626cb68fb26185e3164af65bfda661e
 This newer CI adds meaningful automated backup/restore regression coverage, but it still does not establish a real off-host restore drill with separately stored encryption keys and an independent recovery environment. That operational gap remains open.
 
 The earlier audit baseline and PR-state table are a dated snapshot, not a live PR status. Recheck PR heads and mergeability immediately before any merge decision. In particular, PR #146's current head and the earlier #141 mergeability observation must not be conflated.
+
+
+## Addendum: verification on 2026-11-27
+
+This addendum supersedes earlier dated PR-state observations where they differ. It records GitHub state observed on 2026-11-27 and does not authorize merging.
+
+### Current PR stack and dependencies
+
+All PRs below were open and unmerged when checked. GitHub reported each as mergeable at the time of this check:
+
+| PR | Base branch | Head branch | Head SHA | State |
+|---|---|---|---|---|
+| [#140](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/140) | `main` | `chore/verify-python-lockfiles` | `5dd7da106800fe72062c60100aa74845d9d25aea` | Open, ready for review |
+| [#141](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/141) | `chore/verify-python-lockfiles` | `feat/mfa-encrypted-secret-storage` | `55678e36da5adf19d28153a69feec1c0d6691d30` | Open, ready for review |
+| [#144](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/144) | `feat/mfa-encrypted-secret-storage` | `feat/mfa-enrollment-login-recovery` | `3f5752ad03dfe92e33d96b3766560f01ded99e04` | Open, ready for review |
+| [#145](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/145) | `feat/mfa-enrollment-login-recovery` | `feat/mfa-frontend-flow` | `e46a095d6f76a947b365b2d564e6b99faa7d06ed` | Open, ready for review |
+| [#146](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/146) | `feat/mfa-frontend-flow` | `test/mfa-e2e-cleanup-hardening` | `8b6350626cb68fb26185e3164af65bfda661e8c0` | Open, Draft |
+| [#147](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/147) | `test/mfa-e2e-cleanup-hardening` | `docs/refresh-mfa-roadmap-status` | `32719a3a9f3622ca82cb6e71ff1ab4b621546d1d` | Open, Draft |
+| [#148](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/148) | `docs/refresh-mfa-roadmap-status` | `audit/2026-11-27-followup` | `87bb18dc608a7f577c731fe0cd14f9eb9ad821bf` | Open, Draft |
+| [#149](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/149) | `test/mfa-e2e-cleanup-hardening` | `security/high-critical-container-scan` | `96b2c95236105250361c609e698bd3168ca1547c` | Open, Draft |
+| [#150](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/150) | `test/mfa-e2e-cleanup-hardening` | `test/mfa-challenge-lockout-regression` | `a7a15bab1b7d0abdc58ee67a8cc735d50700eaf4` | Open, Draft |
+
+The earlier statement that PR #141 was non-mergeable is stale: the current GitHub metadata now reports it as mergeable. This is not a review approval and does not remove the stacked dependency order. PRs #149 and #150 are parallel additions based on #146, not steps in the #140 → #147 linear chain. Do not merge any PR without its required base changes and review.
+
+### Latest CI and security results
+
+- [PR #149 ECC CI run 45910760485](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45910760485): all four substantive jobs succeeded — API tests/migrations/backup regression, frontend build, Docker build/Compose smoke checks and shell validation. The separate `archive-recovery-evidence` job was skipped.
+- [PR #149 Security Scan run 45910760626](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45910760626): Python dependency audit, frontend dependency audit and container image vulnerability scan all succeeded. PR #149 expands Trivy coverage to unfixed HIGH and CRITICAL findings for both API and frontend images.
+- [PR #150 ECC CI run 45911111854](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45911111854): frontend build, Docker build/Compose smoke checks, shell validation, backup/restore regression tests, API tests and migration verification all succeeded. The separate `archive-recovery-evidence` job was skipped.
+- PR #150 adds regression tests for the five-attempt MFA challenge limit and expired challenge rejection. No Security Scan run was verified for PR #150; its change is test-only, and the successful PR #149 Security Scan must not be attributed to PR #150.
+
+These runs are evidence for their exact PR heads only. They do not prove that the same workflow policy is already active on `main`, nor do they constitute an off-host disaster-recovery exercise.
+
+### Main branch governance verified
+
+The repository has an active GitHub ruleset named **Protect main**, targeting `refs/heads/main`. The ruleset currently enforces:
+- no branch deletion and no non-fast-forward updates;
+- pull requests with at least one approving review;
+- dismissal of stale approvals on new pushes;
+- resolution of review conversations;
+- strict required status checks;
+- no bypass actors.
+
+The configured required status contexts are:
+`test`, `frontend-build`, `docker-build`, `shell-validation`, `Python dependency audit`, `Frontend dependency audit`, and `Container image vulnerability scan`.
+
+This confirms that a ruleset is active. It does not by itself prove every required context is emitted by every workflow event or that every PR in the stack has satisfied the full merge policy. Check the exact head's required checks before any merge.
+
+### Confirmed remaining release blockers
+
+1. MFA and supporting hardening remain in unmerged PRs; `main` does not yet contain those changes.
+2. The real off-host encrypted backup recovery drill remains unverified. CI regression tests and upload evidence are not a substitute for restoring on an independent host with separately recoverable keys.
+3. Independent security review and a complete route-by-route tenant-isolation review remain outstanding.
+4. The dependency/provenance audit is incomplete; the commercial licence remains a draft and no root `LICENSE` file was present on `main` at this check.
+5. The production deployment checklist still describes the product as not production-ready. No real customer pilot, measured RPO/RTO, load test or operational support process has been evidenced.
+
+### Updated readiness assessment
+
+The current development stack is estimated at approximately **55–60% toward a controlled commercial MVP**, while `main` remains approximately **40–45%** because the feature stack is not merged. These are engineering judgement ranges, not measured metrics or security certification. Commercial readiness remains lower than feature completeness until the release blockers above are addressed.
+
+No PR was merged and no change was made to `main` during this addendum.
