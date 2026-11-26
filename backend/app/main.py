@@ -646,9 +646,11 @@ class UserRead(BaseModel):
 
 
 class TokenRead(BaseModel):
-    access_token: str
+    access_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
+    mfa_required: bool = False
+    challenge_token: str | None = None
 
 
 class AuthSessionRead(BaseModel):
@@ -870,6 +872,15 @@ def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    from app.mfa_routes import issue_mfa_challenge
+    challenge = issue_mfa_challenge(session, user)
+    if challenge is not None:
+        challenge_token, challenge_expires_in = challenge
+        return TokenRead(
+            access_token=None, mfa_required=True,
+            challenge_token=challenge_token, expires_in=challenge_expires_in,
+        )
+
     now = datetime.now(timezone.utc)
     auth_session = AuthSession(
         id=str(uuid4()),
@@ -2097,3 +2108,9 @@ def list_audit_events(
         }
         for event in events
     ]
+
+
+# Import MFA tables after Base and core models are defined so Alembic sees them.
+from app.mfa_models import MFAChallenge, MFAFactor, MFARecoveryCode  # noqa: E402
+from app.mfa_routes import router as mfa_router  # noqa: E402
+app.include_router(mfa_router)
