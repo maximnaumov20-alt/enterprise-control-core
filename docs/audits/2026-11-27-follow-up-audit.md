@@ -234,3 +234,14 @@ Updated PR #151 head: `282c41041a43ef5e0e4277ef241d71d353303986`. Fresh ECC CI a
 - [PostgreSQL run 45913092041](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092041): queued/running; final result pending.
 
 The earlier PostgreSQL success on head `c0c0270` does not validate these newly added bulk/CSV cases. Do not mark the expanded tenant-isolation suite complete until the fresh runs for `282c410` finish successfully.
+
+
+### Expanded tenant-isolation suite: PostgreSQL result
+
+The corrected expanded suite on PR #151 head `282c41041a43ef5e0e4277ef241d71d353303986` passed against PostgreSQL:
+
+- [PostgreSQL security regression run 45913092041](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092041): the combined MFA concurrency + tenant-isolation test step passed, and expired MFA cleanup tests passed.
+- The passing tenant suite now includes cross-tenant bulk asset update rejection, CSV export non-disclosure, tenant-scoped CSV import, and visibility checks in addition to the earlier resource-level cases.
+- [ECC CI run 45913092033](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092033) was still running its API tests and PostgreSQL Compose smoke test when this addendum was written. Frontend build and shell validation had passed.
+
+The first expanded run's failure was confined to an invalid test enum value; the corrected run passed. This is not a confirmed application defect. The overall ECC CI result for the current head remains pending, and a complete route-by-route authorization review remains outstanding.
