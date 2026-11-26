@@ -138,6 +138,21 @@ def _consume_recovery_code(session, user: User, submitted: str) -> bool:
     return False
 
 
+@router.get("/status")
+def mfa_status(session: SessionDep, user: CurrentUser):
+    factor = _factor_for_user(session, user)
+    remaining = len(session.scalars(select(MFARecoveryCode.id).where(
+        MFARecoveryCode.organization_id == user.organization_id,
+        MFARecoveryCode.user_id == user.id,
+        MFARecoveryCode.used_at.is_(None),
+    )).all())
+    return {
+        "status": factor.status if factor is not None else "disabled",
+        "enabled": factor is not None and factor.status == "enabled",
+        "recovery_codes_remaining": remaining,
+    }
+
+
 @router.post("/enrollment")
 def begin_enrollment(session: SessionDep, user: CurrentUser):
     factor = _factor_for_user(session, user)
