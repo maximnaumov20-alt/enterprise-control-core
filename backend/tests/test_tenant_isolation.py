@@ -242,6 +242,45 @@ def test_tenant_owned_resources_cannot_be_read_or_mutated_across_organizations(
     listed_users = client.get("/api/v1/users").json()
     assert [item["email"] for item in listed_users] == ["tenant-b-admin@example.com"]
 
+    # Bulk operations and CSV export/import must preserve tenant boundaries too.
+    assert_status(
+        client.patch(
+            "/api/v1/assets/bulk",
+            json={
+                "asset_ids": [asset["id"]],
+                "versions": {str(asset["id"]): asset["version"]},
+                "status": "maintenance",
+            },
+        ),
+        404,
+    )
+    exported = client.get("/api/v1/assets/export")
+    assert exported.status_code == 200
+    assert "TENANT-A-SRV-01" not in exported.text
+    assert "Tenant A server" not in exported.text
+
+    imported = client.post(
+        "/api/v1/assets/import",
+        files={
+            "file": (
+                "tenant-b-assets.csv",
+                "name,asset_tag,category\\nTenant B imported asset,TENANT-B-IMPORTED-01,Server\\n",
+                "text/csv",
+            )
+        },
+    )
+    assert_status(imported, 200)
+    assert imported.json()["created"] == 1
+    assert imported.json()["skipped"] == 0
+    imported_assets = client.get("/api/v1/assets").json()
+    assert [item["asset_tag"] for item in imported_assets] == ["TENANT-B-IMPORTED-01"]
+
+    authenticate_as(client, "a")
+    first_tenant_assets = client.get("/api/v1/assets").json()
+    assert [item["asset_tag"] for item in first_tenant_assets] == ["TENANT-A-SRV-01"]
+    assert_status(client.get(f"/api/v1/assets/{imported_assets[0]['id']}"), 404)
+    authenticate_as(client, "b")
+
     # Foreign organization references must be rejected even when the caller
     # knows another tenant's numeric resource IDs.
     assert_status(
@@ -267,5 +306,8 @@ def test_tenant_owned_resources_cannot_be_read_or_mutated_across_organizations(
         422,
     )
 
-    # Audit history is tenant-scoped; Tenant B must not see Tenant A events.
-    assert client.get("/api/v1/audit-events").json() == []
+    # Audit history is tenant-scoped; Tenant B must not see Tenant A's asset events.
+    tenant_b_events = client.get("/api/v1/audit-events").json()
+    assert tenant_b_events
+    assert all(event["entity_id"] != str(asset["id"]) for event in tenant_b_events)
+    assert any(event["action"] == "asset.imported" for event in tenant_b_events)
