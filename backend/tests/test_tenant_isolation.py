@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 import os
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import main
 from app.main import (
+    AuthSession,
     Base,
     Organization,
     User,
@@ -80,6 +82,29 @@ def tenant_client(
                 "a": create_access_token(first_admin),
                 "b": create_access_token(second_admin),
             }
+            now = datetime.now(timezone.utc)
+            session_ids = {"a": str(uuid4()), "b": str(uuid4())}
+            session.add_all([
+                AuthSession(
+                    id=session_ids["a"],
+                    organization_id=first_org.id,
+                    user_id=first_admin.id,
+                    token_version=first_admin.token_version,
+                    created_at=now,
+                    last_seen_at=now,
+                    expires_at=now + timedelta(minutes=20),
+                ),
+                AuthSession(
+                    id=session_ids["b"],
+                    organization_id=second_org.id,
+                    user_id=second_admin.id,
+                    token_version=second_admin.token_version,
+                    created_at=now,
+                    last_seen_at=now,
+                    expires_at=now + timedelta(minutes=20),
+                ),
+            ])
+            session.commit()
 
         def override_get_session():
             with testing_session() as session:
@@ -87,6 +112,7 @@ def tenant_client(
 
         app.dependency_overrides[get_session] = override_get_session
         app.state.tenant_test_tokens = tokens
+        app.state.tenant_test_session_ids = session_ids
         try:
             with TestClient(app) as client:
                 client.headers.update({"Authorization": f"Bearer {tokens['a']}"})
@@ -94,6 +120,7 @@ def tenant_client(
         finally:
             app.dependency_overrides.clear()
             app.state.tenant_test_tokens = {}
+            app.state.tenant_test_session_ids = {}
     finally:
         Base.metadata.drop_all(bind=test_engine)
         if schema is not None:
@@ -311,3 +338,39 @@ def test_tenant_owned_resources_cannot_be_read_or_mutated_across_organizations(
     assert tenant_b_events
     assert all(event["entity_id"] != str(asset["id"]) for event in tenant_b_events)
     assert any(event["action"] == "asset.imported" for event in tenant_b_events)
+
+
+
+def test_auth_sessions_are_isolated_between_users_and_organizations(
+    tenant_client: TestClient,
+) -> None:
+    client = tenant_client
+    session_ids = client.app.state.tenant_test_session_ids
+
+    # A legacy access token may list only the authenticated user's sessions.
+    authenticate_as(client, "b")
+    tenant_b_sessions = client.get("/api/v1/auth/sessions")
+    assert_status(tenant_b_sessions, 200)
+    assert [item["id"] for item in tenant_b_sessions.json()] == [session_ids["b"]]
+
+    # Knowing another tenant's session identifier must not allow revocation.
+    assert_status(
+        client.delete(f"/api/v1/auth/sessions/{session_ids['a']}"),
+        404,
+    )
+
+    # The failed cross-tenant attempt must leave Tenant A's session intact.
+    authenticate_as(client, "a")
+    tenant_a_sessions = client.get("/api/v1/auth/sessions")
+    assert_status(tenant_a_sessions, 200)
+    assert [item["id"] for item in tenant_a_sessions.json()] == [session_ids["a"]]
+    assert tenant_a_sessions.json()[0]["revoked_at"] is None
+
+    # Logout-all for Tenant B must not revoke Tenant A's session.
+    authenticate_as(client, "b")
+    assert_status(client.post("/api/v1/auth/logout-all"), 200)
+    authenticate_as(client, "a")
+    after_logout_all = client.get("/api/v1/auth/sessions")
+    assert_status(after_logout_all, 200)
+    assert [item["id"] for item in after_logout_all.json()] == [session_ids["a"]]
+    assert after_logout_all.json()[0]["revoked_at"] is None
