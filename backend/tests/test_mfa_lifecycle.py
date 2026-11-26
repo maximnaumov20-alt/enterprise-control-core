@@ -45,9 +45,11 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
         with testing_session() as session:
             yield session
     app.dependency_overrides[get_session] = override_get_session
+    app.state.test_session_factory = testing_session
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    del app.state.test_session_factory
     Base.metadata.drop_all(bind=test_engine)
     test_engine.dispose()
 
@@ -175,6 +177,50 @@ def test_disabling_mfa_revokes_existing_sessions(client: TestClient):
     assert disabled.json()["sessions_revoked"] is True
     assert client.get("/api/v1/assets", headers=headers).status_code == 401
 
+
+
+def test_disabling_mfa_atomically_consumes_fresh_totp_counter(client: TestClient):
+    token = login(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    confirmed = client.post(
+        "/api/v1/auth/mfa/enrollment/confirm",
+        headers=headers,
+        json={"code": totp_code(start["secret"])},
+    )
+    assert confirmed.status_code == 200
+
+    # Use a recovery code for the next login so the TOTP step remains available
+    # for the sensitive disable operation under test.
+    challenge = login(client).json()["challenge_token"]
+    authenticated = client.post(
+        "/api/v1/auth/mfa/challenge/verify",
+        json={
+            "challenge_token": challenge,
+            "code": confirmed.json()["recovery_codes"][0],
+        },
+    )
+    assert authenticated.status_code == 200
+    headers = {"Authorization": f"Bearer {authenticated.json()['access_token']}"}
+
+    disable_counter = int(time.time() // 30) + 1
+    disable_code = totp_code(start["secret"], timestamp=disable_counter * 30)
+    disabled = client.post(
+        "/api/v1/auth/mfa/disable",
+        headers=headers,
+        json={
+            "current_password": "correct-password-123",
+            "code": disable_code,
+        },
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["status"] == "disabled"
+
+    with app.state.test_session_factory() as session:
+        factor = session.scalar(select(MFAFactor))
+        assert factor is not None
+        assert factor.status == "disabled"
+        assert factor.last_used_counter == disable_counter
 
 
 def test_enabling_mfa_revokes_existing_sessions_and_audits(client: TestClient):
