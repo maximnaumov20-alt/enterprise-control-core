@@ -15,12 +15,11 @@ ECC has a substantial development foundation: tenant-scoped business APIs, role-
 
 Reviewed main head: `16bf045de4142df0c9c65d086c07798edb4a3874`.
 
-The active repository ruleset **Protect main** (ID `28054326`) targets `refs/heads/main`, blocks deletion and non-fast-forward updates, requires pull requests and review-thread resolution, and has no bypass actors. However:
-- required status checks are currently empty;
-- required approving review count is zero;
-- branch-protection API details were not readable through the connected integration (403), so this report relies on the readable repository ruleset.
+The active repository ruleset **Protect main** (ID `28054326`) is enabled. Its latest readable configuration includes deletion and non-fast-forward protections, pull-request review-thread resolution, **one required approval**, and **seven required status checks**: `test`, `frontend-build`, `docker-build`, `shell-validation`, `Python dependency audit`, `Frontend dependency audit`, and `Container image vulnerability scan`. It also requires branches to be up to date before merging. There are no bypass actors.
 
-**Required configuration:** add the verified CI/security job names as required checks. Candidate names from current workflows are `test`, `frontend-build`, `docker-build`, `shell-validation`, `Python dependency audit`, `Frontend dependency audit`, and `Container image vulnerability scan`. Confirm exact names in a fresh PR's Checks UI before saving. Do not require `archive-recovery-evidence` for PRs because it is skipped on pull-request events. Consider at least one independent approval when a qualified reviewer is available.
+**Scope caveat:** the latest API representation returned empty `ref_name.include` and `ref_name.exclude` arrays. This response does not establish that the ruleset is restricted to `refs/heads/main`; verify the target branch filter in the GitHub ruleset UI. If the intention is to protect only `main`, explicitly scope it to `refs/heads/main`. Do not require `archive-recovery-evidence` for PRs because it is skipped on pull-request events.
+
+The connected GitHub integration can read the ruleset but does not expose a ruleset-write operation. No ruleset changes were made by this audit.
 
 The connected GitHub integration did not expose a ruleset-write operation, so this setting was **not changed** by this audit.
 
@@ -68,6 +67,8 @@ Main has:
 - a Python lock-generation workflow pinned to pip-tools 7.5.1;
 - separate runtime and development Python lockfiles.
 
+The latest verified PR #143 head (`b89d1681cececbb4e36a76211c3247c455bdd9f3`) passed all seven required checks. ECC CI jobs `test`, `frontend-build`, `docker-build` and `shell-validation` succeeded; `archive-recovery-evidence` was skipped as expected. Security jobs `Python dependency audit`, `Frontend dependency audit` and `Container image vulnerability scan` succeeded. These results apply to the PR head, not to a new commit or to main.
+
 PR #140 adds a lockfile verification job and passed on its current head. Its pip-tools pin (7.7.0) differs from main's generator (7.5.1). Resolve this mismatch before treating the combined process as a single reproducible supply-chain control.
 
 Vulnerability scans and SBOM generation do not replace license/provenance review. The project still needs verified third-party notices, source inventory, release SBOM archival and legal review of the ECC license and contributor rights.
@@ -100,7 +101,7 @@ Do not load sensitive or business-critical customer data until these controls an
 
 ## 8. Prioritized action plan
 
-1. Configure required status checks on the active main ruleset and validate with a test PR.
+1. Verify the active ruleset's branch filter in GitHub UI; explicitly target `refs/heads/main` if only main should be protected. The seven required checks, strict up-to-date policy and one approval are already present in the latest readable ruleset configuration.
 2. Resolve #134/#141 duplicate TOTP module and #141's dependency-base relationship.
 3. Review and merge #135 only after its latest CI/security results are green; verify main lockfiles afterwards.
 4. Align #140's pinned pip-tools version with the main generator and retain reproducibility checks.
@@ -112,7 +113,7 @@ Do not load sensitive or business-critical customer data until these controls an
 ## Final status
 
 **Development foundation:** substantial.
-**CI/security automation:** present, with governance gaps.
+**CI/security automation:** present; seven required checks and one approval are configured in the active ruleset. Ruleset branch-filter scope still needs UI confirmation.
 **MFA:** incomplete and not enabled as an end-to-end control.
 **Production readiness:** not demonstrated.
 **Independent penetration test:** not performed.
