@@ -89,6 +89,18 @@ class MFADisable(BaseModel):
     code: str = Field(min_length=6, max_length=32)
 
 
+def _enforce_mfa_rate_limit(key: str) -> None:
+    try:
+        retry_after = mfa_rate_limiter.check(key)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Authentication temporarily unavailable") from exc
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=429, detail="Too many MFA attempts",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
 def _factor_for_user(session, user: User) -> MFAFactor | None:
     return session.scalar(select(MFAFactor).where(
         MFAFactor.organization_id == user.organization_id,
@@ -170,7 +182,11 @@ def begin_enrollment(session: SessionDep, user: CurrentUser):
 
 
 @router.post("/enrollment/confirm")
-def confirm_enrollment(payload: EnrollmentConfirm, session: SessionDep, user: CurrentUser):
+def confirm_enrollment(
+    payload: EnrollmentConfirm, request: Request, session: SessionDep, user: CurrentUser
+):
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    _enforce_mfa_rate_limit(f"ecc:auth:mfa:enroll:{user.id}:{client_ip}")
     factor = _factor_for_user(session, user)
     now = _now()
     if factor is None or factor.status != "pending" or factor.pending_expires_at is None:
@@ -239,12 +255,7 @@ def verify_challenge(payload: ChallengeVerify, request: Request, session: Sessio
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge")
     client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
-    try:
-        retry_after = mfa_rate_limiter.check(f"ecc:auth:mfa:{user.id}:{client_ip}")
-    except Exception:
-        raise HTTPException(status_code=503, detail="Authentication temporarily unavailable")
-    if retry_after is not None:
-        raise HTTPException(status_code=429, detail="Too many MFA attempts", headers={"Retry-After": str(retry_after)})
+    _enforce_mfa_rate_limit(f"ecc:auth:mfa:challenge:{user.id}:{client_ip}")
 
     factor = _factor_for_user(session, user)
     accepted = False
@@ -299,7 +310,11 @@ def verify_challenge(payload: ChallengeVerify, request: Request, session: Sessio
 
 
 @router.post("/disable")
-def disable_mfa(payload: MFADisable, session: SessionDep, user: CurrentUser):
+def disable_mfa(
+    payload: MFADisable, request: Request, session: SessionDep, user: CurrentUser
+):
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    _enforce_mfa_rate_limit(f"ecc:auth:mfa:disable:{user.id}:{client_ip}")
     if not password_hash.verify(payload.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     factor = _factor_for_user(session, user)
