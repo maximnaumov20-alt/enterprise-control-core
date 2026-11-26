@@ -83,7 +83,10 @@ def test_cleanup_removes_only_expired_challenges_and_pending_factors():
             assert len(factors) == 1
             assert factors[0].status == "enabled"
             assert len(challenges) == 1
-            assert challenges[0].expires_at > now
+            expires_at = challenges[0].expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            assert expires_at > now
 
         with SessionLocal.begin() as session:
             assert cleanup_expired_auth_records(session, now=now) == {
