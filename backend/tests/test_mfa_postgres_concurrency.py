@@ -15,7 +15,6 @@ from app.mfa import generate_totp_secret, totp_code, verify_totp
 from app.mfa_models import MFAFactor
 
 
-@pytest.mark.postgres
 def test_concurrent_totp_counter_claim_has_exactly_one_winner():
     database_url = os.getenv("ECC_TEST_POSTGRES_URL")
     if not database_url:

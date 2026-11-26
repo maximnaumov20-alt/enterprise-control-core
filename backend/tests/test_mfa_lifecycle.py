@@ -163,13 +163,12 @@ def test_disabling_mfa_revokes_existing_sessions(client: TestClient):
     assert authenticated.status_code == 200
     headers = {"Authorization": f"Bearer {authenticated.json()['access_token']}"}
 
-    later_code = totp_code(start["secret"], timestamp=(int(time.time() // 30) + 2) * 30)
     disabled = client.post(
         "/api/v1/auth/mfa/disable",
         headers=headers,
         json={
             "current_password": "correct-password-123",
-            "code": later_code,
+            "code": confirmed.json()["recovery_codes"][0],
         },
     )
     assert disabled.status_code == 200
@@ -256,6 +255,12 @@ def test_recovery_code_regeneration_rotates_codes_and_revokes_sessions(client: T
         headers=headers, json={"code": totp_code(start["secret"])},
     ).json()
     old_code = confirmed["recovery_codes"][0]
+    challenge = login(client).json()["challenge_token"]
+    authenticated = client.post("/api/v1/auth/mfa/challenge/verify", json={
+        "challenge_token": challenge, "code": old_code
+    })
+    assert authenticated.status_code == 200
+    headers = {"Authorization": f"Bearer {authenticated.json()['access_token']}"}
 
     regenerated = client.post(
         "/api/v1/auth/mfa/recovery-codes/regenerate",
