@@ -163,3 +163,20 @@ def test_invalid_totp_secret_is_not_encrypted():
         encrypt_totp_secret(
             "not-a-valid-secret", organization_id=7, user_id=42, keyring=keys
         )
+
+def test_rejects_unsupported_or_unknown_envelope_key_ids():
+    keys = keyring()
+    encrypted = encrypt_totp_secret(
+        TOTP_SECRET, organization_id=7, user_id=42, keyring=keys
+    )
+    version, key_id, payload = encrypted.split(".")
+
+    for malformed in (
+        f"v2.{key_id}.{payload}",
+        f"v1.{'0' * 16}.{payload}",
+        f"v1.short.{payload}",
+    ):
+        with pytest.raises(MFADecryptionError):
+            decrypt_totp_secret(
+                malformed, organization_id=7, user_id=42, keyring=keys
+            )
