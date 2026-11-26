@@ -30,6 +30,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      # pip-tools 7.5.1 uses pip internals removed in pip 26. Pin pip
+      # so lock generation remains reproducible until the compiler is upgraded.
+      - name: Install compatible pip version
+        run: python -m pip install --disable-pip-version-check "pip==25.3"
+
       - name: Install pinned lock compiler
         run: python -m pip install --disable-pip-version-check "pip-tools==7.5.1"
 
