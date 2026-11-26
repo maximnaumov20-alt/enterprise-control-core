@@ -76,7 +76,16 @@ def test_enrollment_requires_confirmation_and_returns_recovery_codes_once(client
     assert confirmed.status_code == 200
     codes = confirmed.json()["recovery_codes"]
     assert len(codes) == 10
-    assert client.post("/api/v1/auth/mfa/enrollment/confirm", headers=headers, json={"code": code}).status_code == 409
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+    challenge = login(client).json()["challenge_token"]
+    fresh_login = client.post("/api/v1/auth/mfa/challenge/verify", json={
+        "challenge_token": challenge, "code": next_totp_code(secret)
+    })
+    assert fresh_login.status_code == 200
+    fresh_headers = {"Authorization": f"Bearer {fresh_login.json()['access_token']}"}
+    assert client.post(
+        "/api/v1/auth/mfa/enrollment/confirm", headers=fresh_headers, json={"code": code}
+    ).status_code == 409
 
 
 def test_password_login_does_not_issue_access_token_when_mfa_enabled(client: TestClient):
@@ -147,13 +156,20 @@ def test_disabling_mfa_revokes_existing_sessions(client: TestClient):
         json={"code": totp_code(start["secret"])},
     )
     assert confirmed.status_code == 200
+    challenge = login(client).json()["challenge_token"]
+    authenticated = client.post("/api/v1/auth/mfa/challenge/verify", json={
+        "challenge_token": challenge, "code": next_totp_code(start["secret"])
+    })
+    assert authenticated.status_code == 200
+    headers = {"Authorization": f"Bearer {authenticated.json()['access_token']}"}
 
+    later_code = totp_code(start["secret"], timestamp=(int(time.time() // 30) + 2) * 30)
     disabled = client.post(
         "/api/v1/auth/mfa/disable",
         headers=headers,
         json={
             "current_password": "correct-password-123",
-            "code": next_totp_code(start["secret"]),
+            "code": later_code,
         },
     )
     assert disabled.status_code == 200
