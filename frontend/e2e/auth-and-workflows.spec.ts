@@ -6,7 +6,7 @@ const adminEmail = process.env.ECC_ADMIN_EMAIL || "e2e-admin@example.test";
 const adminPassword = process.env.ECC_ADMIN_PASSWORD || "e2e-admin-password-123456";
 let adminTotpSecret = "";
 let lastUsedTotpCounter = -1;
-let setupRequest: APIRequestContext;
+let setupRequest: APIRequestContext | undefined;
 
 function currentTotpCounter(): number {
   return Math.floor(Date.now() / 1000 / 30);
