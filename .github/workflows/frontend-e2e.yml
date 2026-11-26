@@ -35,6 +35,7 @@ jobs:
           sed -i \
             -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=e2e-postgres-secret-1234567890/" \
             -e "s/^ECC_SECRET_KEY=.*/ECC_SECRET_KEY=e2e-jwt-secret-1234567890-abcdefghijklmnopqrstuvwxyz/" \
+            -e "s/^ECC_MFA_ENCRYPTION_KEY=.*/ECC_MFA_ENCRYPTION_KEY=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8/" \
             -e "s/^ECC_ADMIN_EMAIL=.*/ECC_ADMIN_EMAIL=$ECC_ADMIN_EMAIL/" \
             -e "s/^ECC_ADMIN_PASSWORD=.*/ECC_ADMIN_PASSWORD=$ECC_ADMIN_PASSWORD/" .env
           docker compose up --build --detach
