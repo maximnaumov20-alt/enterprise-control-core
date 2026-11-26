@@ -920,7 +920,7 @@ export default function App() {
               </form>
             </div>
           </div>}
-          {mfaStatus.enabled && <div className="mfa-actions">
+          {mfaStatus?.enabled && <div className="mfa-actions">
             <p>MFA активна. Неиспользованных recovery-кодов: <strong>{mfaStatus.recovery_codes_remaining}</strong>. Существующие коды нельзя просмотреть повторно, но можно безопасно перевыпустить.</p>
             <form className="mfa-regenerate-form" onSubmit={regenerateMfaRecoveryCodes}>
               <label>Текущий пароль<input type="password" autoComplete="current-password" required value={mfaCurrentPassword} onChange={e => setMfaCurrentPassword(e.target.value)} /></label>
