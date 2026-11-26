@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { expect, request as playwrightRequest, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const baseURL = process.env.ECC_E2E_BASE_URL || "http://127.0.0.1:5173";
-const adminEmail = process.env.ECC_ADMIN_EMAIL || "e2e-admin@example.test";
+const adminEmail = process.env.ECC_ADMIN_EMAIL || "e2e-admin@example.com";
 const adminPassword = process.env.ECC_ADMIN_PASSWORD || "e2e-admin-password-123456";
 let adminTotpSecret = "";
 let adminAccessToken = "";
