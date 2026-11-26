@@ -27,6 +27,10 @@ MAX_CHALLENGE_ATTEMPTS = 5
 RECOVERY_CODE_COUNT = 10
 MFA_RATE_LIMIT_MAX = int(os.getenv("MFA_RATE_LIMIT_MAX", "5"))
 MFA_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("MFA_RATE_LIMIT_WINDOW_SECONDS", "300"))
+MFA_ALLOW_LOCAL_RATELIMIT_RAW = os.getenv("ECC_MFA_ALLOW_LOCAL_RATELIMIT", "false").strip().lower()
+if MFA_ALLOW_LOCAL_RATELIMIT_RAW not in {"true", "false"}:
+    raise RuntimeError("ECC_MFA_ALLOW_LOCAL_RATELIMIT must be 'true' or 'false'.")
+MFA_ALLOW_LOCAL_RATELIMIT = MFA_ALLOW_LOCAL_RATELIMIT_RAW == "true"
 if MFA_RATE_LIMIT_MAX < 1 or MFA_RATE_LIMIT_WINDOW_SECONDS < 1:
     raise RuntimeError("MFA rate-limit settings must be positive integers.")
 mfa_rate_limiter = LoginRateLimiter(MFA_RATE_LIMIT_MAX, MFA_RATE_LIMIT_WINDOW_SECONDS, redis_client)
@@ -95,6 +99,11 @@ class RecoveryCodeRegenerate(BaseModel):
 
 
 def _enforce_mfa_rate_limit(key: str) -> None:
+    if redis_client is None and not MFA_ALLOW_LOCAL_RATELIMIT:
+        raise HTTPException(
+            status_code=503,
+            detail="Shared MFA rate limiting requires Redis; local fallback is disabled",
+        )
     try:
         retry_after = mfa_rate_limiter.check(key)
     except Exception as exc:
