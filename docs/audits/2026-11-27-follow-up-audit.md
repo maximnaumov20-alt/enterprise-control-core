@@ -98,3 +98,17 @@ Do not run the restore script against a real or shared database as part of routi
 The previous audit's 40–45% commercial-MVP estimate should not be mechanically carried forward. The MFA feature set has advanced in an open PR stack, but the latest validation does not close deployment, independent review, restore, governance or licensing gaps. A defensible updated percentage requires a weighted acceptance checklist and evidence for each criterion; this audit therefore does **not** invent a new readiness percentage.
 
 **Conclusion:** continue development on feature branches and stacked PRs. Keep `main` unchanged until the PR chain is reviewed, merge dependencies are resolved, and required checks and governance controls are verified.
+
+
+## Addendum: latest PR #146 head observed after initial audit
+
+The PR #146 head subsequently advanced to `8b6350626cb68fb26185e3164af65bfda661e8c0`. The following newer workflow evidence supersedes the older #146 references above:
+
+- [ECC CI #593](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45852452138): **success**. API tests, migrations, frontend build, Docker build/Compose smoke test and shell validation passed. The Docker job's **Upload recovery drill evidence** step passed, and the test job's **Run backup and restore regression tests** step passed. The separate `archive-recovery-evidence` job was **skipped**; do not describe the whole recovery validation as skipped, but also do not treat that separate job as passed.
+- [Frontend browser E2E #22](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45852462930): **success**.
+- [MFA PostgreSQL concurrency #23](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45852463421): **success**.
+- No Security Scan run for this newer head was returned by the commit-associated workflow query. The successful Security Scan listed in section 2 remains evidence for the older PR #147 head only; it must not be attributed to #146's newer SHA.
+
+This newer CI adds meaningful automated backup/restore regression coverage, but it still does not establish a real off-host restore drill with separately stored encryption keys and an independent recovery environment. That operational gap remains open.
+
+The earlier audit baseline and PR-state table are a dated snapshot, not a live PR status. Recheck PR heads and mergeability immediately before any merge decision. In particular, PR #146's current head and the earlier #141 mergeability observation must not be conflated.
