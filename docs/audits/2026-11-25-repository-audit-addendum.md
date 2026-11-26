@@ -17,20 +17,18 @@ Reviewed main head: `16bf045de4142df0c9c65d086c07798edb4a3874`.
 
 The active repository ruleset **Protect main** (ID `28054326`) is enabled. Its latest readable configuration includes deletion and non-fast-forward protections, pull-request review-thread resolution, **one required approval**, and **seven required status checks**: `test`, `frontend-build`, `docker-build`, `shell-validation`, `Python dependency audit`, `Frontend dependency audit`, and `Container image vulnerability scan`. It also requires branches to be up to date before merging. There are no bypass actors.
 
-**Scope caveat:** the latest API representation returned empty `ref_name.include` and `ref_name.exclude` arrays. This response does not establish that the ruleset is restricted to `refs/heads/main`; verify the target branch filter in the GitHub ruleset UI. If the intention is to protect only `main`, explicitly scope it to `refs/heads/main`. Do not require `archive-recovery-evidence` for PRs because it is skipped on pull-request events.
+**Scope verified:** the current ruleset API response explicitly contains `ref_name.include: ["refs/heads/main"]` and an empty exclude list. The ruleset is therefore scoped to `main`; the earlier scope caveat is resolved. Do not require `archive-recovery-evidence` for PRs because it is skipped on pull-request events.
 
 The connected GitHub integration can read the ruleset but does not expose a ruleset-write operation. No ruleset changes were made by this audit.
-
-The connected GitHub integration did not expose a ruleset-write operation, so this setting was **not changed** by this audit.
 
 ## 2. Pull request integration and MFA
 
 At review time, PRs #134, #135, #136, #137, #138, #140 and #141 were open drafts.
 
 - **#135** adds `cryptography` and updates both hash-pinned Python lockfiles. Its CI and Security Scan completed successfully. Until it is merged, the main branch's runtime lock does not include this dependency.
-- **#140** adds lockfile verification. Its dedicated verification job, ECC CI and ECC Security Scan completed successfully on its head. Main already has a separate `python-dependency-locks.yml` generator pinned to pip-tools 7.5.1, while #140's verifier pins 7.7.0. Reconcile the versions and commands so generation and verification are deterministic and consistent.
+- **#140** adds lockfile verification. Its first verification attempt failed because `pip-tools==7.5.1` accessed the removed `InstallRequirement.use_pep517` attribute. Pinning pip 25.3 did not resolve this. A follow-up commit pins pip 24.3.1; the regenerated runtime lock step has passed on that commit, while the development lock, diff check and hash-locked installation were still running at the time of this addendum refresh. Do not call #140 green until the complete workflow and all seven required checks finish successfully. Main's lock generator and verifier both use pip-tools 7.5.1.
 - **#134** and **#141** both add `backend/app/mfa.py`. This is an integration collision: both branches introduce the same module, while #141 is based on #135 rather than main. Consolidate to one canonical TOTP implementation and rebase the encrypted-storage work on the selected dependency/primitive branch before merging.
-- **#141** adds AEAD-encrypted TOTP secret storage, but the PR head has no associated workflow runs visible through the current GitHub workflow query. Its test claims must not be treated as CI-verified until workflows run on the exact current head.
+- **#141** adds AEAD-encrypted TOTP secret storage. Its head is based on #135 rather than main and has no associated workflow runs visible through the current commit check query. Its test claims must not be treated as full-CI-verified until workflows run on the exact current head.
 - **#136–#138** remain separate draft changes. Review and merge individually only after checking their latest diffs and CI; do not batch unrelated security changes blindly.
 
 No pull request was merged as part of this audit.
@@ -67,9 +65,9 @@ Main has:
 - a Python lock-generation workflow pinned to pip-tools 7.5.1;
 - separate runtime and development Python lockfiles.
 
-The latest verified PR #143 head (`b89d1681cececbb4e36a76211c3247c455bdd9f3`) passed all seven required checks. ECC CI jobs `test`, `frontend-build`, `docker-build` and `shell-validation` succeeded; `archive-recovery-evidence` was skipped as expected. Security jobs `Python dependency audit`, `Frontend dependency audit` and `Container image vulnerability scan` succeeded. These results apply to the PR head, not to a new commit or to main.
+The latest verified PR #143 head (`1da7982bf0521684c2e1f559366dfa6209882f93`) passed all seven required checks. ECC CI jobs `test`, `frontend-build`, `docker-build` and `shell-validation` succeeded; `archive-recovery-evidence` was skipped as expected. Security jobs `Python dependency audit`, `Frontend dependency audit` and `Container image vulnerability scan` succeeded. These results apply to the PR head, not to a new commit or to main.
 
-PR #140 adds a lockfile verification job and passed on its current head. Its pip-tools pin (7.7.0) differs from main's generator (7.5.1). Resolve this mismatch before treating the combined process as a single reproducible supply-chain control.
+PR #140 adds a lockfile verification job. The first attempt failed with the pip 25.3 / pip-tools 7.5.1 compatibility error. The PR branch now pins pip 24.3.1; runtime lock regeneration has passed, but the remaining steps and full required checks must complete before the control is accepted.
 
 Vulnerability scans and SBOM generation do not replace license/provenance review. The project still needs verified third-party notices, source inventory, release SBOM archival and legal review of the ECC license and contributor rights.
 
@@ -101,7 +99,7 @@ Do not load sensitive or business-critical customer data until these controls an
 
 ## 8. Prioritized action plan
 
-1. Verify the active ruleset's branch filter in GitHub UI; explicitly target `refs/heads/main` if only main should be protected. The seven required checks, strict up-to-date policy and one approval are already present in the latest readable ruleset configuration.
+1. Keep the active ruleset scoped to `refs/heads/main`; its current API configuration confirms this. The seven required checks, strict up-to-date policy and one approval are present.
 2. Resolve #134/#141 duplicate TOTP module and #141's dependency-base relationship.
 3. Review and merge #135 only after its latest CI/security results are green; verify main lockfiles afterwards.
 4. Align #140's pinned pip-tools version with the main generator and retain reproducibility checks.
