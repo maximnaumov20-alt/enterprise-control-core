@@ -8,7 +8,7 @@ Source-available platform in development for managing company IT assets, softwar
 
 The roadmap is maintained in the repository and distinguishes completed work from items still in progress or awaiting validation. For release readiness and operational acceptance criteria, see the [production deployment checklist](docs/PRODUCTION-DEPLOYMENT.md) and [full technical audit](docs/audits/2026-11-25-full-audit.md).
 
-> **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, role-based permissions, organization-scoped asset access, per-user access-token invalidation after password or account-state changes, login rate limiting and basic audit events are implemented. Production hardening, independent security review, MFA, refresh-token support, selective token revocation and tamper-evident audit storage remain outstanding. Do not use it with sensitive or production data.
+> **Status: early development.** This repository is not production-ready. Authentication, role-based permissions, tenant-scoped asset access, persisted sessions and session revocation, login rate limiting, and basic audit events are implemented. TOTP MFA is implemented in the current open pull-request stack (#141, #144, #145 and #146), including encrypted secret storage, replay protection, recovery codes, rate limiting, frontend flows and automated coverage; these changes have not yet been merged into `main`. Production hardening, independent security review, operational backup/restore validation, and release governance remain incomplete. Do not use it with sensitive or production data.
 
 ## Community edition
 
