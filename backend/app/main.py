@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from contextlib import asynccontextmanager
 import io
 import os
 import threading
@@ -779,10 +780,21 @@ def record_audit(
     ))
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Validate active and previous MFA keys before serving any requests.
+    # Import locally to avoid the app <-> MFA router import cycle.
+    from app.mfa_crypto import MFAEncryptionKeyring
+
+    MFAEncryptionKeyring.from_environment(os.environ)
+    yield
+
+
 app = FastAPI(
     title="Enterprise Control Center API",
     version="0.2.0",
     description="Early-development API for organization-scoped IT asset inventory.",
+    lifespan=lifespan,
 )
 
 allowed_origins = [
