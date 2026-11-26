@@ -89,6 +89,11 @@ class MFADisable(BaseModel):
     code: str = Field(min_length=6, max_length=32)
 
 
+class RecoveryCodeRegenerate(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
+
+
 def _enforce_mfa_rate_limit(key: str) -> None:
     try:
         retry_after = mfa_rate_limiter.check(key)
@@ -229,9 +234,22 @@ def confirm_enrollment(
             id=str(uuid4()), organization_id=user.organization_id, user_id=user.id,
             code_hash=password_hash.hash(code), created_at=now, used_at=None,
         ))
+    user.token_version += 1
+    revoked = session.execute(update(AuthSession).where(
+        AuthSession.organization_id == user.organization_id,
+        AuthSession.user_id == user.id,
+        AuthSession.revoked_at.is_(None),
+    ).values(revoked_at=now))
     record_audit(session, user, "mfa.enabled", "mfa_factor", factor.id)
+    record_audit(
+        session, user, "mfa.sessions_revoked_on_enable", "mfa_factor", factor.id,
+        {"revoked_sessions": max(revoked.rowcount or 0, 0)},
+    )
     session.commit()
-    return {"status": "enabled", "recovery_codes": codes}
+    return {
+        "status": "enabled", "recovery_codes": codes,
+        "sessions_revoked": True, "revoked_sessions": max(revoked.rowcount or 0, 0),
+    }
 
 
 @router.post("/challenge/verify")
@@ -259,6 +277,7 @@ def verify_challenge(payload: ChallengeVerify, request: Request, session: Sessio
 
     factor = _factor_for_user(session, user)
     accepted = False
+    used_recovery_code = False
     if factor is not None and factor.status == "enabled" and payload.code.isascii() and payload.code.isdigit():
         secret = decrypt_totp_secret(
             factor.encrypted_secret, organization_id=user.organization_id,
@@ -275,7 +294,8 @@ def verify_challenge(payload: ChallengeVerify, request: Request, session: Sessio
             ).values(last_used_counter=counter, updated_at=now))
             accepted = updated.rowcount == 1
     if not accepted:
-        accepted = _consume_recovery_code(session, user, payload.code)
+        used_recovery_code = _consume_recovery_code(session, user, payload.code)
+        accepted = used_recovery_code
     if not accepted:
         session.execute(update(MFAChallenge).where(
             MFAChallenge.id == challenge.id,
@@ -294,6 +314,21 @@ def verify_challenge(payload: ChallengeVerify, request: Request, session: Sessio
     if consumed.rowcount != 1:
         session.rollback()
         raise HTTPException(status_code=401, detail="Invalid or expired MFA challenge")
+    if used_recovery_code:
+        user.token_version += 1
+        revoked = session.execute(update(AuthSession).where(
+            AuthSession.organization_id == user.organization_id,
+            AuthSession.user_id == user.id,
+            AuthSession.revoked_at.is_(None),
+        ).values(revoked_at=now))
+        record_audit(
+            session, user, "mfa.recovery_code_used", "mfa_challenge", challenge.id,
+            {"purpose": "login"},
+        )
+        record_audit(
+            session, user, "mfa.sessions_revoked_on_recovery", "mfa_challenge", challenge.id,
+            {"revoked_sessions": max(revoked.rowcount or 0, 0)},
+        )
     auth_session = AuthSession(
         id=str(uuid4()), organization_id=user.organization_id, user_id=user.id,
         token_version=user.token_version, created_at=now, last_seen_at=now,
@@ -325,17 +360,19 @@ def disable_mfa(
         user_id=user.id, keyring=_keyring(),
     )
     counter = verify_totp(secret, payload.code, _now().timestamp(), valid_window=1)
+    used_recovery_code = False
     if counter is None or (
         factor.last_used_counter is not None and counter <= factor.last_used_counter
     ):
-        if not _consume_recovery_code(session, user, payload.code):
+        used_recovery_code = _consume_recovery_code(session, user, payload.code)
+        if not used_recovery_code:
             raise HTTPException(status_code=400, detail="Invalid authenticator or recovery code")
     now = _now()
     factor.status = "disabled"
     factor.pending_expires_at = None
     factor.updated_at = now
     user.token_version += 1
-    session.execute(update(AuthSession).where(
+    revoked = session.execute(update(AuthSession).where(
         AuthSession.organization_id == user.organization_id,
         AuthSession.user_id == user.id,
         AuthSession.revoked_at.is_(None),
@@ -345,5 +382,76 @@ def disable_mfa(
         MFARecoveryCode.user_id == user.id,
     ))
     record_audit(session, user, "mfa.disabled", "mfa_factor", factor.id)
+    if used_recovery_code:
+        record_audit(
+            session, user, "mfa.recovery_code_used", "mfa_factor", factor.id,
+            {"purpose": "disable_mfa"},
+        )
+        record_audit(
+            session, user, "mfa.sessions_revoked_on_recovery", "mfa_factor", factor.id,
+            {"revoked_sessions": max(revoked.rowcount or 0, 0), "purpose": "disable_mfa"},
+        )
     session.commit()
     return {"status": "disabled", "sessions_revoked": True}
+ 
+ 
+@router.post("/recovery-codes/regenerate")
+def regenerate_recovery_codes(
+    payload: RecoveryCodeRegenerate, request: Request, session: SessionDep, user: CurrentUser
+):
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    _enforce_mfa_rate_limit(f"ecc:auth:mfa:recovery-regenerate:{user.id}:{client_ip}")
+    if not password_hash.verify(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    factor = _factor_for_user(session, user)
+    if factor is None or factor.status != "enabled":
+        raise HTTPException(status_code=409, detail="MFA is not enabled")
+    secret = decrypt_totp_secret(
+        factor.encrypted_secret, organization_id=user.organization_id,
+        user_id=user.id, keyring=_keyring(),
+    )
+    now = _now()
+    counter = verify_totp(secret, payload.code, now.timestamp(), valid_window=1)
+    if counter is None or (
+        factor.last_used_counter is not None and counter <= factor.last_used_counter
+    ):
+        raise HTTPException(status_code=400, detail="A fresh authenticator code is required")
+    advanced = session.execute(update(MFAFactor).where(
+        MFAFactor.id == factor.id,
+        MFAFactor.organization_id == user.organization_id,
+        MFAFactor.user_id == user.id,
+        MFAFactor.status == "enabled",
+        or_(MFAFactor.last_used_counter.is_(None), MFAFactor.last_used_counter < counter),
+    ).values(last_used_counter=counter, updated_at=now).execution_options(synchronize_session=False))
+    if advanced.rowcount != 1:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Authenticator code was already used")
+    session.execute(MFARecoveryCode.__table__.delete().where(
+        MFARecoveryCode.organization_id == user.organization_id,
+        MFARecoveryCode.user_id == user.id,
+    ))
+    codes = [secrets.token_hex(5).upper() for _ in range(RECOVERY_CODE_COUNT)]
+    for code in codes:
+        session.add(MFARecoveryCode(
+            id=str(uuid4()), organization_id=user.organization_id, user_id=user.id,
+            code_hash=password_hash.hash(code), created_at=now, used_at=None,
+        ))
+    user.token_version += 1
+    revoked = session.execute(update(AuthSession).where(
+        AuthSession.organization_id == user.organization_id,
+        AuthSession.user_id == user.id,
+        AuthSession.revoked_at.is_(None),
+    ).values(revoked_at=now))
+    record_audit(
+        session, user, "mfa.recovery_codes_regenerated", "mfa_factor", factor.id,
+        {"code_count": len(codes)},
+    )
+    record_audit(
+        session, user, "mfa.sessions_revoked_on_recovery_code_regeneration", "mfa_factor", factor.id,
+        {"revoked_sessions": max(revoked.rowcount or 0, 0)},
+    )
+    session.commit()
+    return {
+        "status": "regenerated", "recovery_codes": codes,
+        "sessions_revoked": True, "revoked_sessions": max(revoked.rowcount or 0, 0),
+    }
