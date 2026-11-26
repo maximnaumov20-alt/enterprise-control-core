@@ -2,9 +2,9 @@ name: ECC CI
 
 on:
   push:
-    branches: [main, chore/verify-python-lockfiles, feat/mfa-encrypted-secret-storage, feat/mfa-enrollment-login-recovery, feat/mfa-frontend-flow, test/mfa-e2e-cleanup-hardening]
+    branches: [main, chore/verify-python-lockfiles, feat/mfa-encrypted-secret-storage, feat/mfa-enrollment-login-recovery, feat/mfa-frontend-flow, test/mfa-e2e-cleanup-hardening, security/high-critical-container-scan]
   pull_request:
-    branches: [main]
+    branches: [main, test/mfa-e2e-cleanup-hardening]
 
 permissions:
   contents: read
