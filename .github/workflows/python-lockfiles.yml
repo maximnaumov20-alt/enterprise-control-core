@@ -43,6 +43,7 @@ jobs:
           pip-compile
           --generate-hashes
           --resolver=backtracking
+          --no-index
           --output-file=backend/requirements-runtime.lock
           backend/requirements-runtime.in
 
@@ -51,6 +52,7 @@ jobs:
           pip-compile
           --generate-hashes
           --resolver=backtracking
+          --no-index
           --output-file=backend/requirements-dev.lock
           backend/requirements-dev.in
 
