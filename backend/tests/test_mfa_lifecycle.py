@@ -159,3 +159,99 @@ def test_disabling_mfa_revokes_existing_sessions(client: TestClient):
     assert disabled.status_code == 200
     assert disabled.json()["sessions_revoked"] is True
     assert client.get("/api/v1/assets", headers=headers).status_code == 401
+
+
+
+def test_enabling_mfa_revokes_existing_sessions_and_audits(client: TestClient):
+    first_token = login(client).json()["access_token"]
+    second_token = login(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {first_token}"}
+    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    confirmed = client.post(
+        "/api/v1/auth/mfa/enrollment/confirm",
+        headers=headers,
+        json={"code": totp_code(start["secret"])},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["sessions_revoked"] is True
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+    assert client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {second_token}"}
+    ).status_code == 401
+
+    challenge = login(client).json()["challenge_token"]
+    verified = client.post("/api/v1/auth/mfa/challenge/verify", json={
+        "challenge_token": challenge, "code": next_totp_code(start["secret"])
+    })
+    assert verified.status_code == 200
+    audit = client.get(
+        "/api/v1/audit-events",
+        headers={"Authorization": f"Bearer {verified.json()['access_token']}"},
+    )
+    assert audit.status_code == 200
+    actions = {event["action"] for event in audit.json()}
+    assert "mfa.enabled" in actions
+    assert "mfa.sessions_revoked_on_enable" in actions
+
+
+def test_recovery_login_revokes_other_sessions_and_has_distinct_audit(client: TestClient):
+    initial = login(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {initial}"}
+    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    codes = client.post(
+        "/api/v1/auth/mfa/enrollment/confirm",
+        headers=headers, json={"code": totp_code(start["secret"])},
+    ).json()["recovery_codes"]
+
+    first_challenge = login(client).json()["challenge_token"]
+    first_login = client.post("/api/v1/auth/mfa/challenge/verify", json={
+        "challenge_token": first_challenge, "code": next_totp_code(start["secret"])
+    })
+    assert first_login.status_code == 200
+    existing_token = first_login.json()["access_token"]
+
+    recovery_challenge = login(client).json()["challenge_token"]
+    recovered = client.post("/api/v1/auth/mfa/challenge/verify", json={
+        "challenge_token": recovery_challenge, "code": codes[0]
+    })
+    assert recovered.status_code == 200
+    assert client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {existing_token}"}
+    ).status_code == 401
+    assert client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {recovered.json()['access_token']}"}
+    ).status_code == 200
+
+    audit = client.get(
+        "/api/v1/audit-events",
+        headers={"Authorization": f"Bearer {recovered.json()['access_token']}"},
+    )
+    actions = {event["action"] for event in audit.json()}
+    assert "mfa.recovery_code_used" in actions
+    assert "mfa.sessions_revoked_on_recovery" in actions
+
+
+def test_recovery_code_regeneration_rotates_codes_and_revokes_sessions(client: TestClient):
+    token = login(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    confirmed = client.post(
+        "/api/v1/auth/mfa/enrollment/confirm",
+        headers=headers, json={"code": totp_code(start["secret"])},
+    ).json()
+    old_code = confirmed["recovery_codes"][0]
+
+    regenerated = client.post(
+        "/api/v1/auth/mfa/recovery-codes/regenerate",
+        headers=headers,
+        json={
+            "current_password": "correct-password-123",
+            "code": next_totp_code(start["secret"]),
+        },
+    )
+    assert regenerated.status_code == 200
+    new_codes = regenerated.json()["recovery_codes"]
+    assert len(new_codes) == 10
+    assert old_code not in new_codes
+    assert regenerated.json()["sessions_revoked"] is True
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
