@@ -102,8 +102,18 @@ def test_challenge_verification_issues_session_and_rejects_replay(client: TestCl
     verified = client.post("/api/v1/auth/mfa/challenge/verify", json={"challenge_token": challenge, "code": code})
     assert verified.status_code == 200
     assert verified.json()["access_token"]
-    replay = client.post("/api/v1/auth/mfa/challenge/verify", json={"challenge_token": challenge, "code": code})
-    assert replay.status_code == 401
+    replay_same_challenge = client.post(
+        "/api/v1/auth/mfa/challenge/verify",
+        json={"challenge_token": challenge, "code": code},
+    )
+    assert replay_same_challenge.status_code == 401
+
+    second_challenge = login(client).json()["challenge_token"]
+    replay_new_challenge = client.post(
+        "/api/v1/auth/mfa/challenge/verify",
+        json={"challenge_token": second_challenge, "code": code},
+    )
+    assert replay_new_challenge.status_code == 401
 
 
 def test_recovery_code_is_single_use(client: TestClient):
@@ -124,3 +134,28 @@ def test_recovery_code_is_single_use(client: TestClient):
         "challenge_token": second_challenge, "code": codes[0]
     })
     assert second.status_code == 401
+
+
+
+def test_disabling_mfa_revokes_existing_sessions(client: TestClient):
+    token = login(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    confirmed = client.post(
+        "/api/v1/auth/mfa/enrollment/confirm",
+        headers=headers,
+        json={"code": totp_code(start["secret"])},
+    )
+    assert confirmed.status_code == 200
+
+    disabled = client.post(
+        "/api/v1/auth/mfa/disable",
+        headers=headers,
+        json={
+            "current_password": "correct-password-123",
+            "code": next_totp_code(start["secret"]),
+        },
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["sessions_revoked"] is True
+    assert client.get("/api/v1/assets", headers=headers).status_code == 401
