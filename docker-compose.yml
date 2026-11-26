@@ -53,6 +53,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://ecc:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/ecc
       ECC_SECRET_KEY: ${ECC_SECRET_KEY:?Set ECC_SECRET_KEY in .env}
+      ECC_MFA_ENCRYPTION_KEY: ${ECC_MFA_ENCRYPTION_KEY:-}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-20}
       REDIS_URL: redis://redis:6379/0
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
