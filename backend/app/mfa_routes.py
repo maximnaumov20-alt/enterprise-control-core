@@ -76,7 +76,7 @@ def issue_mfa_challenge(session, user: User) -> tuple[str, int] | None:
 
 
 class EnrollmentConfirm(BaseModel):
-    code: str = Field(min_length=6, max_length=8, pattern=r"^[0-9]+$")
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
 
 
 class ChallengeVerify(BaseModel):
