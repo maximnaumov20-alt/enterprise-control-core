@@ -206,3 +206,13 @@ PR [#151](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/151)
 - The PR description was corrected to distinguish the earlier completed SQLite/standard CI run from the new PostgreSQL validation, which is still in progress.
 
 This provides direct PostgreSQL-backed regression evidence for the tested endpoints, but not a complete route-by-route tenant-isolation review. Other tenant-owned routes and permission combinations remain to be inventoried and tested. PR #151 remains Draft and unmerged. No change was made to `main`.
+
+
+### Final result for PostgreSQL security regression workflow
+
+The two runs triggered for PR #151's updated head both completed successfully:
+
+- [Pull-request run 45912829641](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45912829641): **success**. PostgreSQL MFA and tenant-isolation regressions passed; expired MFA artifact cleanup tests passed.
+- [Push run 45912825035](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45912825035): **success**, with the same test steps passed.
+
+This supersedes the earlier in-progress note above. The dedicated PostgreSQL tenant-isolation regression now has successful CI evidence on PR #151 head `c0c027030837f264e8ef247baba0116ffe903dc2`. This remains automated coverage of the specific tested API surface, not proof that every tenant-aware route or authorization combination has been reviewed.
