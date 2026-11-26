@@ -54,6 +54,10 @@ jobs:
           --output-file=backend/requirements-dev.lock
           backend/requirements-dev.in
 
+      # Normalize pip-tools' generated command metadata; the lock content and hashes remain untouched.
+      - name: Normalize lockfile command metadata
+        run: sed -i 's/ --no-index//' backend/requirements-runtime.lock backend/requirements-dev.lock
+
       - name: Reject stale or hand-edited lockfiles
         run: |
           git diff --check
