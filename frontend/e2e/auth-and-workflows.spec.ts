@@ -1,0 +1,161 @@
+import { createHmac } from "node:crypto";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+
+const baseURL = process.env.ECC_E2E_BASE_URL || "http://127.0.0.1:5173";
+const adminEmail = process.env.ECC_ADMIN_EMAIL || "e2e-admin@example.test";
+const adminPassword = process.env.ECC_ADMIN_PASSWORD || "e2e-admin-password-123456";
+let adminTotpSecret = "";
+
+function decodeBase32(value: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const char of value.replace(/=+$/g, "").toUpperCase()) {
+    const index = alphabet.indexOf(char);
+    if (index < 0) throw new Error("Invalid Base32 TOTP secret");
+    bits += index.toString(2).padStart(5, "0");
+  }
+  const bytes: number[] = [];
+  for (let offset = 0; offset + 8 <= bits.length; offset += 8) {
+    bytes.push(Number.parseInt(bits.slice(offset, offset + 8), 2));
+  }
+  return Buffer.from(bytes);
+}
+
+function totp(secret: string, instant = Date.now()): string {
+  const counter = Math.floor(instant / 1000 / 30);
+  const message = Buffer.alloc(8);
+  message.writeBigUInt64BE(BigInt(counter));
+  const digest = createHmac("sha1", decodeBase32(secret)).update(message).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = digest.readUInt32BE(offset) & 0x7fffffff;
+  return String(binary % 1_000_000).padStart(6, "0");
+}
+
+async function rawPasswordLogin(request: APIRequestContext, email: string, password: string) {
+  const response = await request.post(baseURL + "/api/v1/auth/token", {
+    form: { username: email, password },
+  });
+  expect(response.ok(), "password login failed: " + response.status()).toBeTruthy();
+  return response.json() as Promise<{
+    access_token: string | null;
+    mfa_required?: boolean;
+    challenge_token?: string | null;
+  }>;
+}
+
+async function adminToken(request: APIRequestContext): Promise<string> {
+  const result = await rawPasswordLogin(request, adminEmail, adminPassword);
+  if (result.access_token) return result.access_token;
+  expect(result.mfa_required).toBeTruthy();
+  expect(result.challenge_token).toBeTruthy();
+  const verified = await request.post(baseURL + "/api/v1/auth/mfa/challenge/verify", {
+    data: { challenge_token: result.challenge_token, code: totp(adminTotpSecret) },
+  });
+  expect(verified.ok(), "MFA challenge verification failed: " + verified.status()).toBeTruthy();
+  const body = await verified.json() as { access_token: string };
+  return body.access_token;
+}
+
+test.beforeAll(async ({ request }) => {
+  const initial = await rawPasswordLogin(request, adminEmail, adminPassword);
+  expect(initial.access_token, "fresh E2E database should start with MFA disabled").toBeTruthy();
+  const headers = { Authorization: "Bearer " + initial.access_token };
+  const statusResponse = await request.get(baseURL + "/api/v1/auth/mfa/status", { headers });
+  expect(statusResponse.ok()).toBeTruthy();
+  const status = await statusResponse.json() as { enabled: boolean };
+  expect(status.enabled).toBeFalsy();
+
+  const enrollmentResponse = await request.post(baseURL + "/api/v1/auth/mfa/enrollment", { headers });
+  expect(enrollmentResponse.ok()).toBeTruthy();
+  const enrollment = await enrollmentResponse.json() as { secret: string };
+  adminTotpSecret = enrollment.secret;
+  const confirmResponse = await request.post(baseURL + "/api/v1/auth/mfa/enrollment/confirm", {
+    headers,
+    data: { code: totp(adminTotpSecret) },
+  });
+  expect(confirmResponse.ok(), "MFA enrollment failed: " + confirmResponse.status()).toBeTruthy();
+});
+
+async function loginThroughUi(page: Page, email: string, password: string, secret?: string) {
+  await page.goto("/");
+  await page.getByLabel("Электронная почта").fill(email);
+  await page.getByLabel("Пароль").fill(password);
+  await page.getByRole("button", { name: "Войти" }).click();
+
+  if (secret) {
+    await expect(page.getByRole("heading", { name: "Подтверждение входа" })).toBeVisible();
+    await page.getByLabel("Код подтверждения").fill(totp(secret));
+    await page.getByRole("button", { name: "Подтвердить и войти" }).click();
+  }
+  await expect(page.getByRole("heading", { name: "Оборудование" })).toBeVisible();
+}
+
+test("MFA login, assets, maintenance requests, sessions and admin navigation", async ({ page, request }) => {
+  const token = await adminToken(request);
+  const headers = { Authorization: "Bearer " + token };
+  const suffix = Date.now();
+  const assetName = "E2E workstation " + suffix;
+  const assetResponse = await request.post(baseURL + "/api/v1/assets", {
+    headers,
+    data: {
+      name: assetName,
+      asset_tag: "E2E-" + suffix,
+      category: "Компьютер",
+      manufacturer: "ECC E2E",
+      model: "Virtual",
+      serial_number: "E2E-SN-" + suffix,
+      assigned_to: "E2E Test",
+      status: "active",
+    },
+  });
+  expect(assetResponse.ok(), "asset seed failed: " + assetResponse.status()).toBeTruthy();
+  const asset = await assetResponse.json() as { id: number };
+
+  const requestTitle = "E2E maintenance " + suffix;
+  const maintenanceResponse = await request.post(baseURL + "/api/v1/maintenance-requests", {
+    headers,
+    data: {
+      asset_id: asset.id,
+      title: requestTitle,
+      description: "Created by browser end-to-end test",
+      priority: "normal",
+    },
+  });
+  expect(maintenanceResponse.ok(), "maintenance seed failed: " + maintenanceResponse.status()).toBeTruthy();
+
+  await loginThroughUi(page, adminEmail, adminPassword, adminTotpSecret);
+  await expect(page.getByText(assetName)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Пользователи" })).toBeVisible();
+  await page.getByRole("button", { name: "Обслуживание" }).click();
+  await expect(page.getByRole("heading", { name: "Заявки" })).toBeVisible();
+  await expect(page.getByText(requestTitle)).toBeVisible();
+
+  await page.getByRole("button", { name: "Безопасность и сеансы" }).click();
+  await expect(page.getByRole("heading", { name: "Безопасность и сеансы" })).toBeVisible();
+  await expect(page.getByText("Многофакторная аутентификация")).toBeVisible();
+  await expect(page.getByText("Включена")).toBeVisible();
+});
+
+test("viewer role hides administration and is denied user-management API", async ({ page, request }) => {
+  const token = await adminToken(request);
+  const headers = { Authorization: "Bearer " + token };
+  const email = "viewer-" + Date.now() + "@example.test";
+  const password = "viewer-e2e-password-123";
+  const createResponse = await request.post(baseURL + "/api/v1/users", {
+    headers,
+    data: { email, full_name: "E2E Viewer", password, role: "viewer" },
+  });
+  expect(createResponse.ok(), "viewer creation failed: " + createResponse.status()).toBeTruthy();
+
+  await loginThroughUi(page, email, password);
+  await expect(page.getByRole("button", { name: "Обслуживание" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Пользователи" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Сотрудники" })).toHaveCount(0);
+
+  const viewerLogin = await rawPasswordLogin(request, email, password);
+  expect(viewerLogin.access_token).toBeTruthy();
+  const forbidden = await request.get(baseURL + "/api/v1/users", {
+    headers: { Authorization: "Bearer " + viewerLogin.access_token },
+  });
+  expect(forbidden.status()).toBe(403);
+});
