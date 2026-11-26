@@ -25,7 +25,7 @@ ECC is an early-development project. Authentication, role checks, organization-s
 ## Important remaining limitations
 
 - Persisted per-login sessions support selective session revocation and account-wide logout. Access tokens are checked against their session record on authenticated requests. There is no refresh-token flow or token rotation yet.
-- MFA, password reset and email verification are not implemented. Login throttling is implemented; account lockout is not.
+- Password reset and email verification are not implemented. MFA has an implementation under review; it is not yet production-certified. Account lockout is not implemented.
 - Audit events are application-level records, not tamper-proof or cryptographically chained. Database administrators can alter them.
 - Organization provisioning is currently performed by the bootstrap command. There is no self-service tenant signup.
 - There is no independent penetration test, formal threat model, production backup/restore certification or compliance assessment.
@@ -55,3 +55,23 @@ Compose runs Redis and the API uses it as a shared counter store, so limits appl
 The in-memory limiter is only a development/test fallback when `REDIS_URL` is not configured. Do not use that fallback with multiple workers or API replicas.
 
 The API obtains the client address from `X-Real-IP` when present. This header is trusted only because the supplied Nginx gateway overwrites it with the TCP peer address. Keep the API on a private network, do not publish its port directly, and use a trusted reverse proxy that overwrites `X-Real-IP`. The application intentionally does not trust arbitrary `X-Forwarded-For` values.
+
+
+## MFA rate limiting and client IP headers
+
+MFA endpoints require shared Redis-backed rate limiting by default. Configure
+`REDIS_URL` for every API worker. The in-process fallback is disabled unless
+`ECC_MFA_ALLOW_LOCAL_RATELIMIT=true` is explicitly set; this setting is only
+appropriate for isolated development or single-process tests and must not be
+enabled in production. Without Redis and without that explicit opt-in, MFA
+verification endpoints return HTTP 503 rather than silently weakening limits
+to per-process buckets.
+
+The MFA limiter uses the `X-Real-IP` request header as part of its client key.
+A reverse proxy at the public edge MUST remove any client-supplied
+`X-Real-IP` header and set a new value from the connection's verified source
+address. Trust forwarding headers only from explicitly allowlisted proxy
+addresses; do not accept this header directly from arbitrary clients. The
+supplied Nginx gateway overwrites `X-Real-IP` with its resolved
+`$remote_addr`. When another proxy sits in front, configure trusted proxy
+CIDRs correctly and ensure that upstream proxy sanitizes the header.
