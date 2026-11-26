@@ -173,3 +173,24 @@ This confirms that a ruleset is active. It does not by itself prove every requir
 The current development stack is estimated at approximately **55–60% toward a controlled commercial MVP**, while `main` remains approximately **40–45%** because the feature stack is not merged. These are engineering judgement ranges, not measured metrics or security certification. Commercial readiness remains lower than feature completeness until the release blockers above are addressed.
 
 No PR was merged and no change was made to `main` during this addendum.
+
+
+## Addendum: PR #151 tenant-isolation regression validation (2026-11-27)
+
+PR [#151](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/151) is open, Draft, unmerged, and based on PR #146's branch. Its head is `c8da26d8aa692fe024eea9826cc26fea3835d287`. GitHub reported it mergeable when checked; this is not approval to merge.
+
+- [ECC CI run 45912323540](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45912323540): **success**.
+- `shell-validation`: passed, including maintenance script lint and mocked backup/S3 orchestration checks.
+- `frontend-build`: passed.
+- `docker-build`: passed, including API/frontend image builds, trusted proxy checks, PostgreSQL Compose smoke test, and upload of recovery drill evidence.
+- `test`: passed, including backup/restore regression tests, API tests, and migration verification.
+- Separate `archive-recovery-evidence` job: **skipped**. This does not negate the successful Compose smoke test or the recovery-evidence upload step inside `docker-build`.
+
+PR #151 adds a two-organization API regression suite covering tenant-scoped listing and access restrictions for assets, departments, employees, software licences, maintenance requests and users, foreign-tenant resource references, and audit-event visibility. The tests use synthetic records and an isolated in-memory SQLite database. This is useful regression coverage, but it is **not** PostgreSQL-specific tenant-isolation evidence and does not replace a complete route-by-route authorization review. The PostgreSQL Compose smoke test in the same CI run is a separate workflow check; it should not be described as running this new test suite against PostgreSQL.
+
+### Updated status and remaining work
+
+- The PR #151 test suite and all substantive jobs in its associated ECC CI run passed on the exact head above.
+- The tenant-isolation review remains partial: expand coverage to remaining tenant-owned endpoints and verify critical cross-tenant cases against PostgreSQL before calling the review complete.
+- PR #151 remains Draft and unmerged. It is a parallel branch based on #146, not a new step in the #140 → #147 linear stack.
+- No PR was merged and `main` was not changed by this addendum.
