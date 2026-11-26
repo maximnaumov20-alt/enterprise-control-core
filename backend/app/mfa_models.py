@@ -1,6 +1,6 @@
 """Database models for the MFA credential lifecycle."""
 from datetime import datetime
-from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, Integer, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, BigInteger, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.main import Base
 
@@ -26,7 +26,7 @@ class MFAFactor(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     pending_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_used_counter: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_used_counter: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

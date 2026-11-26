@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import secrets
 from datetime import datetime, timedelta, timezone
+import time
 from typing import Generator
 
 import pytest
@@ -16,6 +17,7 @@ from app.main import Base, Organization, User, UserRole, app, get_session, passw
 from app.mfa import totp_code
 from app.mfa_crypto import MFAEncryptionKeyring
 from app.mfa_models import MFAChallenge, MFAFactor, MFARecoveryCode
+from app import mfa_routes
 
 
 @pytest.fixture()
@@ -25,6 +27,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
     key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
     monkeypatch.setenv("ECC_MFA_ENCRYPTION_KEY", key)
     monkeypatch.setattr(main, "redis_client", None)
+    monkeypatch.setattr(mfa_routes, "mfa_rate_limiter", main.LoginRateLimiter(20, 60))
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     testing_session = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
     Base.metadata.create_all(bind=test_engine)
@@ -47,6 +50,11 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=test_engine)
     test_engine.dispose()
+
+
+def next_totp_code(secret: str) -> str:
+    next_counter = int(time.time() // 30) + 1
+    return totp_code(secret, timestamp=next_counter * 30)
 
 
 def login(client: TestClient):
@@ -90,7 +98,7 @@ def test_challenge_verification_issues_session_and_rejects_replay(client: TestCl
     start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
     client.post("/api/v1/auth/mfa/enrollment/confirm", headers=headers, json={"code": totp_code(start["secret"])})
     challenge = login(client).json()["challenge_token"]
-    code = totp_code(start["secret"])
+    code = next_totp_code(start["secret"])
     verified = client.post("/api/v1/auth/mfa/challenge/verify", json={"challenge_token": challenge, "code": code})
     assert verified.status_code == 200
     assert verified.json()["access_token"]

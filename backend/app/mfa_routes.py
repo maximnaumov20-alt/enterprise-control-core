@@ -37,7 +37,10 @@ def _now() -> datetime:
 
 
 def _keyring() -> MFAEncryptionKeyring:
-    return MFAEncryptionKeyring.from_environment(os.environ)
+    try:
+        return MFAEncryptionKeyring.from_environment(os.environ)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="MFA encryption is not configured") from exc
 
 
 def _digest(value: str) -> str:
