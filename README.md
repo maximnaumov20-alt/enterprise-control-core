@@ -8,7 +8,7 @@ Source-available platform in development for managing company IT assets, softwar
 
 The roadmap is maintained in the repository and distinguishes completed work from items still in progress or awaiting validation. For release readiness and operational acceptance criteria, see the [production deployment checklist](docs/PRODUCTION-DEPLOYMENT.md), [historical full technical audit](docs/audits/2026-11-25-full-audit.md) and [repository-wide audit addendum](docs/audits/2026-11-25-repository-audit-addendum.md).
 
-> **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, role-based permissions, organization-scoped asset access, per-user access-token invalidation after password or account-state changes, login rate limiting and basic audit events are implemented. Persisted login sessions with individual and account-wide revocation are implemented. MFA, refresh-token support, production hardening, independent security review and tamper-evident audit storage remain outstanding. Do not use it with sensitive or production data.
+> **Status: early development.** This repository is a starter foundation, not a production-ready enterprise system. Authentication, role-based permissions, organization-scoped asset access, per-user access-token invalidation after password or account-state changes, login rate limiting and basic audit events are implemented. Persisted login sessions with individual and account-wide revocation are implemented. MFA lifecycle is under review and is not production-ready. Refresh-token support, production hardening, independent security review and tamper-evident audit storage remain outstanding. Do not use it with sensitive or production data.
 
 ## Community edition
 
