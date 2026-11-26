@@ -374,3 +374,47 @@ def test_auth_sessions_are_isolated_between_users_and_organizations(
     assert_status(after_logout_all, 200)
     assert [item["id"] for item in after_logout_all.json()] == [session_ids["a"]]
     assert after_logout_all.json()[0]["revoked_at"] is None
+
+
+def test_mfa_enrollment_state_is_isolated_between_organizations(
+    tenant_client: TestClient,
+) -> None:
+    client = tenant_client
+
+    tenant_a_status = client.get("/api/v1/auth/mfa/status")
+    assert_status(tenant_a_status, 200)
+    assert tenant_a_status.json() == {
+        "status": "disabled",
+        "enabled": False,
+        "recovery_codes_remaining": 0,
+    }
+
+    tenant_a_enrollment = client.post("/api/v1/auth/mfa/enrollment")
+    assert_status(tenant_a_enrollment, 200)
+    tenant_a_payload = tenant_a_enrollment.json()
+    assert tenant_a_payload["status"] == "pending"
+    assert "tenant-a-admin@example.com" in tenant_a_payload["provisioning_uri"]
+
+    # A second organization must not observe or reuse the first organization's
+    # pending factor, even though both users have administrator privileges.
+    authenticate_as(client, "b")
+    tenant_b_status = client.get("/api/v1/auth/mfa/status")
+    assert_status(tenant_b_status, 200)
+    assert tenant_b_status.json() == {
+        "status": "disabled",
+        "enabled": False,
+        "recovery_codes_remaining": 0,
+    }
+
+    tenant_b_enrollment = client.post("/api/v1/auth/mfa/enrollment")
+    assert_status(tenant_b_enrollment, 200)
+    tenant_b_payload = tenant_b_enrollment.json()
+    assert tenant_b_payload["status"] == "pending"
+    assert "tenant-b-admin@example.com" in tenant_b_payload["provisioning_uri"]
+    assert tenant_b_payload["secret"] != tenant_a_payload["secret"]
+
+    authenticate_as(client, "a")
+    tenant_a_pending_status = client.get("/api/v1/auth/mfa/status")
+    assert_status(tenant_a_pending_status, 200)
+    assert tenant_a_pending_status.json()["status"] == "pending"
+    assert tenant_a_pending_status.json()["enabled"] is False
