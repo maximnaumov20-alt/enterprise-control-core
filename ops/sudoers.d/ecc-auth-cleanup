@@ -1,0 +1,3 @@
+# Permit only the fixed ECC expired-auth cleanup command.
+# Keep this file root-owned and mode 0440.
+ecc-cleanup ALL=(root) NOPASSWD: /usr/bin/docker compose exec -T api python -m app.cleanup_expired_auth
