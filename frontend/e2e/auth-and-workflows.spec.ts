@@ -137,7 +137,7 @@ async function loginThroughUi(page: Page, email: string, password: string, secre
     await page.getByLabel("Код подтверждения").fill(await waitForFreshTotp());
     await page.getByRole("button", { name: "Подтвердить и войти" }).click();
   }
-  await expect(page.getByRole("heading", { name: "Оборудование" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Оборудование", exact: true })).toBeVisible();
 }
 
 test("MFA login, assets, maintenance requests, sessions and admin navigation", async ({ page }) => {
