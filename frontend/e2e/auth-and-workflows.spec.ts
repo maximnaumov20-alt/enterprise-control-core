@@ -6,10 +6,11 @@ test.describe.configure({ mode: "serial" });
 const baseURL = process.env.ECC_E2E_BASE_URL || "http://127.0.0.1:5173";
 const adminEmail = process.env.ECC_ADMIN_EMAIL || "e2e-admin@example.com";
 const adminPassword = process.env.ECC_ADMIN_PASSWORD || "e2e-admin-password-123456";
-let adminTotpSecret = "";
-let adminAccessToken = "";
-let viewerEmail = "";
 const viewerPassword = "viewer-e2e-password-123";
+let adminTotpSecret = "";
+let viewerEmail = "";
+let assetName = "";
+let requestTitle = "";
 let lastUsedTotpCounter = -1;
 let setupRequest: APIRequestContext | undefined;
 
@@ -56,19 +57,54 @@ async function rawPasswordLogin(request: APIRequestContext, email: string, passw
     form: { username: email, password },
   });
   expect(response.ok(), "password login failed: " + response.status()).toBeTruthy();
-  return response.json() as Promise<{
-    access_token: string | null;
-    mfa_required?: boolean;
-    challenge_token?: string | null;
-  }>;
+  return response.json() as Promise<{ access_token: string | null }>;
 }
 
 test.beforeAll(async () => {
   test.setTimeout(120_000);
   setupRequest = await playwrightRequest.newContext({ baseURL });
   const initial = await rawPasswordLogin(setupRequest, adminEmail, adminPassword);
-  expect(initial.access_token, "fresh E2E database should start with MFA disabled").toBeTruthy();
+  expect(initial.access_token).toBeTruthy();
   const headers = { Authorization: "Bearer " + initial.access_token };
+
+  // Seed business records and the viewer before MFA activation revokes the bootstrap session.
+  const suffix = Date.now();
+  assetName = "E2E workstation " + suffix;
+  const assetResponse = await setupRequest.post(baseURL + "/api/v1/assets", {
+    headers,
+    data: {
+      name: assetName,
+      asset_tag: "E2E-" + suffix,
+      category: "Компьютер",
+      manufacturer: "ECC E2E",
+      model: "Virtual",
+      serial_number: "E2E-SN-" + suffix,
+      assigned_to: "E2E Test",
+      status: "active",
+    },
+  });
+  expect(assetResponse.ok()).toBeTruthy();
+  const asset = await assetResponse.json() as { id: number };
+
+  requestTitle = "E2E maintenance " + suffix;
+  const maintenanceResponse = await setupRequest.post(baseURL + "/api/v1/maintenance-requests", {
+    headers,
+    data: {
+      asset_id: asset.id,
+      title: requestTitle,
+      description: "Created by browser end-to-end test",
+      priority: "normal",
+    },
+  });
+  expect(maintenanceResponse.ok()).toBeTruthy();
+
+  viewerEmail = "viewer-" + suffix + "@example.com";
+  const viewerResponse = await setupRequest.post(baseURL + "/api/v1/users", {
+    headers,
+    data: { email: viewerEmail, full_name: "E2E Viewer", password: viewerPassword, role: "viewer" },
+  });
+  expect(viewerResponse.ok()).toBeTruthy();
+
   const statusResponse = await setupRequest.get(baseURL + "/api/v1/auth/mfa/status", { headers });
   expect(statusResponse.ok()).toBeTruthy();
   const status = await statusResponse.json() as { enabled: boolean };
@@ -84,27 +120,6 @@ test.beforeAll(async () => {
   });
   expect(confirmResponse.ok()).toBeTruthy();
   lastUsedTotpCounter = currentTotpCounter();
-
-  const secondLogin = await rawPasswordLogin(setupRequest, adminEmail, adminPassword);
-  if (secondLogin.access_token) {
-    adminAccessToken = secondLogin.access_token;
-  } else {
-    expect(secondLogin.mfa_required).toBeTruthy();
-    expect(secondLogin.challenge_token).toBeTruthy();
-    const verified = await setupRequest.post(baseURL + "/api/v1/auth/mfa/challenge/verify", {
-      data: { challenge_token: secondLogin.challenge_token, code: await waitForFreshTotp() },
-    });
-    expect(verified.ok()).toBeTruthy();
-    const body = await verified.json() as { access_token: string };
-    adminAccessToken = body.access_token;
-  }
-
-  viewerEmail = "viewer-" + Date.now() + "@example.com";
-  const viewerResponse = await setupRequest.post(baseURL + "/api/v1/users", {
-    headers: { Authorization: "Bearer " + adminAccessToken },
-    data: { email: viewerEmail, full_name: "E2E Viewer", password: viewerPassword, role: "viewer" },
-  });
-  expect(viewerResponse.ok()).toBeTruthy();
 });
 
 test.afterAll(async () => {
@@ -125,38 +140,7 @@ async function loginThroughUi(page: Page, email: string, password: string, secre
   await expect(page.getByRole("heading", { name: "Оборудование" })).toBeVisible();
 }
 
-test("MFA login, assets, maintenance requests, sessions and admin navigation", async ({ page, request }) => {
-  const headers = { Authorization: "Bearer " + adminAccessToken };
-  const suffix = Date.now();
-  const assetName = "E2E workstation " + suffix;
-  const assetResponse = await request.post(baseURL + "/api/v1/assets", {
-    headers,
-    data: {
-      name: assetName,
-      asset_tag: "E2E-" + suffix,
-      category: "Компьютер",
-      manufacturer: "ECC E2E",
-      model: "Virtual",
-      serial_number: "E2E-SN-" + suffix,
-      assigned_to: "E2E Test",
-      status: "active",
-    },
-  });
-  expect(assetResponse.ok()).toBeTruthy();
-  const asset = await assetResponse.json() as { id: number };
-
-  const requestTitle = "E2E maintenance " + suffix;
-  const maintenanceResponse = await request.post(baseURL + "/api/v1/maintenance-requests", {
-    headers,
-    data: {
-      asset_id: asset.id,
-      title: requestTitle,
-      description: "Created by browser end-to-end test",
-      priority: "normal",
-    },
-  });
-  expect(maintenanceResponse.ok()).toBeTruthy();
-
+test("MFA login, assets, maintenance requests, sessions and admin navigation", async ({ page }) => {
   await loginThroughUi(page, adminEmail, adminPassword, adminTotpSecret);
   await expect(page.getByText(assetName)).toBeVisible();
   await expect(page.getByRole("button", { name: "Пользователи" })).toBeVisible();
