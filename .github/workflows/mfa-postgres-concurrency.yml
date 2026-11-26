@@ -2,7 +2,7 @@ name: MFA PostgreSQL concurrency tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/mfa-frontend-flow]
   push:
     branches: [main]
 
@@ -45,3 +45,5 @@ jobs:
           pip check
       - name: Run PostgreSQL TOTP concurrency test
         run: pytest -q backend/tests/test_mfa_postgres_concurrency.py
+      - name: Run expired MFA artifact cleanup tests
+        run: pytest -q backend/tests/test_mfa_cleanup.py
