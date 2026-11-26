@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, Asset, AssetInput, AssetStatus, AssetHistoryEvent, AuditEvent, AuthSession, CurrentUser, Department, Employee, EmployeeInput, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, setAccessToken } from "./api";
+import { QRCodeSVG } from "qrcode.react";
+import { api, Asset, AssetInput, AssetStatus, AssetHistoryEvent, AuditEvent, AuthSession, CurrentUser, Department, Employee, EmployeeInput, MaintenancePriority, MaintenanceRequest, MaintenanceRequestInput, MaintenanceStatus, ManagedUser, SoftwareLicense, SoftwareLicenseInput, SoftwareLicenseStatus, SoftwareLicenseType, UserRole, MFAStatus, MFAEnrollment, setAccessToken } from "./api";
 
 const emptyForm: AssetInput = {
   name: "", asset_tag: "", category: "Компьютер", manufacturer: "",
@@ -68,6 +69,15 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [mfaChallengeToken, setMfaChallengeToken] = useState<string | null>(null);
+  const [mfaLoginCode, setMfaLoginCode] = useState("");
+  const [mfaStatus, setMfaStatus] = useState<MFAStatus | null>(null);
+  const [mfaEnrollment, setMfaEnrollment] = useState<MFAEnrollment | null>(null);
+  const [mfaSetupCode, setMfaSetupCode] = useState("");
+  const [mfaCurrentPassword, setMfaCurrentPassword] = useState("");
+  const [mfaRegenerateCode, setMfaRegenerateCode] = useState("");
+  const [mfaActionLoading, setMfaActionLoading] = useState(false);
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState<string[]>([]);
   const [section, setSection] = useState<"assets" | "software" | "maintenance" | "employees" | "users" | "audit" | "security">("assets");
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -124,17 +134,105 @@ export default function App() {
     setError("");
     try {
       const result = await api.login(email.trim().toLowerCase(), password);
+      if (result.mfa_required && result.challenge_token) {
+        setMfaChallengeToken(result.challenge_token);
+        setMfaLoginCode("");
+        setPassword("");
+        return;
+      }
+      if (!result.access_token) throw new Error("Сервер не выдал токен доступа");
       setAccessToken(result.access_token);
       const user = await api.me();
       setCurrentUser(user);
       setToken(result.access_token);
       setPassword("");
+      setMfaChallengeToken(null);
+      setMfaLoginCode("");
     } catch (e) {
       setAccessToken(null);
       setToken(null);
       setCurrentUser(null);
       setError(e instanceof Error ? e.message : "Не удалось войти");
     } finally { setLoginLoading(false); }
+  }
+
+  async function handleMfaLogin(event: FormEvent) {
+    event.preventDefault();
+    if (!mfaChallengeToken) return;
+    setLoginLoading(true);
+    setError("");
+    try {
+      const result = await api.verifyMfaChallenge(mfaChallengeToken, mfaLoginCode.trim());
+      setAccessToken(result.access_token);
+      const user = await api.me();
+      setCurrentUser(user);
+      setToken(result.access_token);
+      setMfaChallengeToken(null);
+      setMfaLoginCode("");
+      setPassword("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось подтвердить второй фактор");
+    } finally { setLoginLoading(false); }
+  }
+
+  async function startMfaEnrollment() {
+    setMfaActionLoading(true);
+    setError("");
+    try {
+      const result = await api.beginMfaEnrollment();
+      setMfaEnrollment(result);
+      setMfaStatus({ status: "pending", enabled: false, recovery_codes_remaining: 0 });
+      setMfaSetupCode("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось начать подключение MFA");
+    } finally { setMfaActionLoading(false); }
+  }
+
+  async function confirmMfaEnrollment(event: FormEvent) {
+    event.preventDefault();
+    setMfaActionLoading(true);
+    setError("");
+    try {
+      const result = await api.confirmMfaEnrollment(mfaSetupCode.trim());
+      setMfaRecoveryCodes(result.recovery_codes);
+      setMfaStatus({ status: "enabled", enabled: true, recovery_codes_remaining: result.recovery_codes.length });
+      setMfaEnrollment(null);
+      setMfaSetupCode("");
+      setAccessToken(null);
+      setToken(null);
+      setCurrentUser(null);
+      setNotice("MFA подключена. Сохраните recovery-коды и войдите повторно с кодом приложения-аутентификатора.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось подтвердить подключение MFA");
+    } finally { setMfaActionLoading(false); }
+  }
+
+  async function regenerateMfaRecoveryCodes(event: FormEvent) {
+    event.preventDefault();
+    setMfaActionLoading(true);
+    setError("");
+    try {
+      const result = await api.regenerateMfaRecoveryCodes(mfaCurrentPassword, mfaRegenerateCode.trim());
+      setMfaRecoveryCodes(result.recovery_codes);
+      setMfaCurrentPassword("");
+      setMfaRegenerateCode("");
+      setMfaStatus({ status: "enabled", enabled: true, recovery_codes_remaining: result.recovery_codes.length });
+      setAccessToken(null);
+      setToken(null);
+      setCurrentUser(null);
+      setNotice("Recovery-коды перевыпущены. Старые коды больше не действуют. Войдите повторно.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось перевыпустить recovery-коды");
+    } finally { setMfaActionLoading(false); }
+  }
+
+  async function copyMfaRecoveryCodes() {
+    try {
+      await navigator.clipboard.writeText(mfaRecoveryCodes.join("\n"));
+      setNotice("Recovery-коды скопированы. Храните их отдельно от пароля.");
+    } catch {
+      setError("Не удалось скопировать коды. Выделите и скопируйте их вручную.");
+    }
   }
 
   async function logout() {
@@ -360,8 +458,11 @@ export default function App() {
     setSection("security");
     setError("");
     setSessionsLoading(true);
-    try { setAuthSessions(await api.authSessions()); }
-    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить активные сеансы"); }
+    try {
+      const [sessions, status] = await Promise.all([api.authSessions(), api.mfaStatus()]);
+      setAuthSessions(sessions);
+      setMfaStatus(status);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить настройки безопасности"); }
     finally { setSessionsLoading(false); }
   }
 
@@ -547,16 +648,36 @@ export default function App() {
   }
 
   if (!token || !currentUser) return <div className="login-shell">
-    <form className="login-card" onSubmit={handleLogin}>
+    <div className="login-card">
       <div className="brand login-brand"><div className="brand-mark">E</div><div><strong>ECC</strong><span>CONTROL CENTER</span></div></div>
       <div className="eyebrow">ЗАЩИЩЁННЫЙ ДОСТУП</div>
-      <h1>Вход в систему</h1>
-      <p>Войдите под учётной записью вашей организации</p>
-      {error && <div className="alert">{error}</div>}
-      <label>Электронная почта<input type="email" required autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} /></label>
-      <label>Пароль<input type="password" required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
-      <button className="primary" type="submit" disabled={loginLoading}>{loginLoading ? "Вход..." : "Войти"}</button>
-    </form>
+      {mfaRecoveryCodes.length > 0 && <section className="mfa-recovery-panel" aria-live="polite">
+        <h2>Сохраните recovery-коды</h2>
+        <p>Они показаны только сейчас. Каждый код одноразовый. После закрытия повторно посмотреть их нельзя, но можно перевыпустить в настройках MFA.</p>
+        <div className="mfa-recovery-grid">{mfaRecoveryCodes.map(code => <code key={code}>{code}</code>)}</div>
+        <button type="button" className="subtle" onClick={() => void copyMfaRecoveryCodes()}>Скопировать коды</button>
+        <button type="button" className="subtle" onClick={() => setMfaRecoveryCodes([])}>Я сохранил коды</button>
+      </section>}
+      {mfaChallengeToken ? <>
+        <h1>Подтверждение входа</h1>
+        <p>Введите шестизначный код из приложения-аутентификатора или одноразовый recovery-код.</p>
+        {error && <div className="alert">{error}</div>}
+        <form onSubmit={handleMfaLogin}>
+          <label>Код подтверждения<input autoFocus type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={32} required value={mfaLoginCode} onChange={e => setMfaLoginCode(e.target.value)} /></label>
+          <button className="primary" type="submit" disabled={loginLoading}>{loginLoading ? "Проверка..." : "Подтвердить и войти"}</button>
+        </form>
+        <button type="button" className="subtle mfa-back" onClick={() => { setMfaChallengeToken(null); setMfaLoginCode(""); setError(""); }}>Вернуться к паролю</button>
+      </> : <>
+        <h1>Вход в систему</h1>
+        <p>Войдите под учётной записью вашей организации</p>
+        {error && <div className="alert">{error}</div>}
+        <form onSubmit={handleLogin}>
+          <label>Электронная почта<input type="email" required autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} /></label>
+          <label>Пароль<input type="password" required autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>
+          <button className="primary" type="submit" disabled={loginLoading}>{loginLoading ? "Вход..." : "Войти"}</button>
+        </form>
+      </>}
+    </div>
   </div>;
 
   return <div className="app-shell">
@@ -778,6 +899,43 @@ export default function App() {
       {section === "security" && <section className="admin-section">
         <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ДОСТУПОМ</div><h1>Безопасность и сеансы</h1><p>Активные входы в эту учётную запись. Завершайте незнакомые или больше не используемые сеансы.</p></div><button className="subtle" onClick={() => void openSecurity()} disabled={sessionsLoading}>Обновить</button></div>
         {error && <div className="alert">{error}</div>}
+        <section className="panel mfa-panel">
+          <div className="panel-heading"><div><h2>Многофакторная аутентификация</h2><p>Одноразовые коды из приложения-аутентификатора и резервные recovery-коды</p></div>
+            <span className={mfaStatus?.enabled ? "status status-active" : "status status-retired"}>{mfaStatus?.enabled ? "Включена" : mfaStatus?.status === "pending" ? "Ожидает подтверждения" : "Выключена"}</span>
+          </div>
+          {!mfaStatus ? <div className="empty">Загрузка состояния MFA...</div> : !mfaStatus.enabled && !mfaEnrollment ? <div className="mfa-actions">
+            <p>Подключите приложение-аутентификатор. После подтверждения текущие сеансы будут завершены, и потребуется повторный вход.</p>
+            <button type="button" className="primary" disabled={mfaActionLoading} onClick={() => void startMfaEnrollment()}>{mfaActionLoading ? "Подготовка..." : "Подключить MFA"}</button>
+          </div> : null}
+          {mfaEnrollment && <div className="mfa-enrollment">
+            <div className="mfa-qr-wrap"><QRCodeSVG value={mfaEnrollment.provisioning_uri} size={208} level="M" marginSize={4} title="QR-код для приложения-аутентификатора" /></div>
+            <div className="mfa-enrollment-instructions">
+              <h3>1. Отсканируйте QR-код</h3>
+              <p>Откройте приложение-аутентификатор и добавьте новую учётную запись. Если сканирование недоступно, введите секрет вручную.</p>
+              <code className="mfa-secret">{mfaEnrollment.secret}</code>
+              <p>2. Введите текущий шестизначный код из приложения, чтобы завершить подключение.</p>
+              <form onSubmit={confirmMfaEnrollment}>
+                <label>Код из приложения<input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" required value={mfaSetupCode} onChange={e => setMfaSetupCode(e.target.value)} /></label>
+                <button type="submit" className="primary" disabled={mfaActionLoading || mfaSetupCode.length !== 6}>{mfaActionLoading ? "Проверка..." : "Подтвердить MFA"}</button>
+              </form>
+            </div>
+          </div>}
+          {mfaStatus.enabled && <div className="mfa-actions">
+            <p>MFA активна. Неиспользованных recovery-кодов: <strong>{mfaStatus.recovery_codes_remaining}</strong>. Существующие коды нельзя просмотреть повторно, но можно безопасно перевыпустить.</p>
+            <form className="mfa-regenerate-form" onSubmit={regenerateMfaRecoveryCodes}>
+              <label>Текущий пароль<input type="password" autoComplete="current-password" required value={mfaCurrentPassword} onChange={e => setMfaCurrentPassword(e.target.value)} /></label>
+              <label>Новый код из приложения<input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" required value={mfaRegenerateCode} onChange={e => setMfaRegenerateCode(e.target.value)} /></label>
+              <button type="submit" className="primary" disabled={mfaActionLoading || mfaRegenerateCode.length !== 6 || !mfaCurrentPassword}>{mfaActionLoading ? "Перевыпуск..." : "Перевыпустить recovery-коды"}</button>
+            </form>
+          </div>}
+          {mfaRecoveryCodes.length > 0 && <div className="mfa-recovery-panel">
+            <h3>Новые recovery-коды</h3>
+            <p>Сохраните их сейчас. Старые коды уже аннулированы.</p>
+            <div className="mfa-recovery-grid">{mfaRecoveryCodes.map(code => <code key={code}>{code}</code>)}</div>
+            <button type="button" className="subtle" onClick={() => void copyMfaRecoveryCodes()}>Скопировать коды</button>
+            <button type="button" className="subtle" onClick={() => setMfaRecoveryCodes([])}>Я сохранил коды</button>
+          </div>}
+        </section>
         <section className="panel">
           <div className="panel-heading"><div><h2>Активные сеансы</h2><p>{authSessions.length} записей · сведения об устройстве и IP-адресе не собираются</p></div><button className="subtle" onClick={() => void revokeAllSessions()} disabled={sessionActionId !== null}>Завершить все сеансы</button></div>
           {sessionsLoading ? <div className="empty">Загрузка сеансов...</div> : authSessions.length === 0 ? <div className="empty">Активных сеансов нет.</div> : <div className="table-wrap"><table><thead><tr><th>СОЗДАН</th><th>ПОСЛЕДНЯЯ АКТИВНОСТЬ</th><th>ИСТЕКАЕТ</th><th>СТАТУС</th><th>ДЕЙСТВИЕ</th></tr></thead><tbody>
