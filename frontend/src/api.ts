@@ -141,6 +141,34 @@ export interface TokenResponse {
   expires_in: number;
 }
 
+export interface LoginResponse {
+  access_token: string | null;
+  token_type?: string;
+  expires_in: number;
+  mfa_required?: boolean;
+  challenge_token?: string | null;
+}
+
+export interface MFAStatus {
+  status: "disabled" | "pending" | "enabled";
+  enabled: boolean;
+  recovery_codes_remaining: number;
+}
+
+export interface MFAEnrollment {
+  status: "pending";
+  secret: string;
+  provisioning_uri: string;
+  expires_at: string;
+}
+
+export interface MFARecoveryCodesResponse {
+  status: "enabled" | "regenerated";
+  recovery_codes: string[];
+  sessions_revoked: boolean;
+  revoked_sessions: number;
+}
+
 export interface AuthSession {
   id: string;
   created_at: string;
@@ -211,9 +239,24 @@ async function uploadAssetCsv(file: File): Promise<{ created: number; skipped: n
 export const api = {
   health: () => request<{ status: string }>("/health"),
   login: (email: string, password: string) =>
-    request<TokenResponse>("/api/v1/auth/token", {
+    request<LoginResponse>("/api/v1/auth/token", {
       method: "POST",
       body: new URLSearchParams({ username: email, password })
+    }),
+  mfaStatus: () => request<MFAStatus>("/api/v1/auth/mfa/status"),
+  beginMfaEnrollment: () =>
+    request<MFAEnrollment>("/api/v1/auth/mfa/enrollment", { method: "POST" }),
+  confirmMfaEnrollment: (code: string) =>
+    request<MFARecoveryCodesResponse>("/api/v1/auth/mfa/enrollment/confirm", {
+      method: "POST", body: JSON.stringify({ code })
+    }),
+  verifyMfaChallenge: (challenge_token: string, code: string) =>
+    request<TokenResponse>("/api/v1/auth/mfa/challenge/verify", {
+      method: "POST", body: JSON.stringify({ challenge_token, code })
+    }),
+  regenerateMfaRecoveryCodes: (current_password: string, code: string) =>
+    request<MFARecoveryCodesResponse>("/api/v1/auth/mfa/recovery-codes/regenerate", {
+      method: "POST", body: JSON.stringify({ current_password, code })
     }),
   me: () => request<CurrentUser>("/api/v1/auth/me"),
   logout: () => request<{ status: string; revoked_sessions: string }>("/api/v1/auth/logout", { method: "POST" }),
