@@ -194,3 +194,15 @@ PR #151 adds a two-organization API regression suite covering tenant-scoped list
 - The tenant-isolation review remains partial: expand coverage to remaining tenant-owned endpoints and verify critical cross-tenant cases against PostgreSQL before calling the review complete.
 - PR #151 remains Draft and unmerged. It is a parallel branch based on #146, not a new step in the #140 → #147 linear stack.
 - No PR was merged and `main` was not changed by this addendum.
+
+
+## Addendum: PostgreSQL tenant-isolation validation started (2026-11-27)
+
+PR [#151](https://github.com/maximnaumov20-alt/enterprise-control-core/pull/151) was extended so the same two-organization API isolation test runs against both SQLite and a dedicated PostgreSQL test database. The PostgreSQL fixture validates the configured database name (`ecc_test` or `test`), creates a UUID-scoped schema, and drops only that schema during teardown. Synthetic test records only; no production database or credentials are used.
+
+- Updated PR #151 head: `c0c027030837f264e8ef247baba0116ffe903dc2`.
+- [PostgreSQL security regression run 45912829641](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45912829641): PostgreSQL service initialized; dependencies installed; **Run PostgreSQL MFA and tenant-isolation regressions passed**. The subsequent expired-MFA-cleanup test step was still running when this addendum was written, so the overall workflow result is not yet final.
+- The workflow now triggers for PRs targeting `test/mfa-e2e-cleanup-hardening` and pushes to `test/tenant-isolation-regression`.
+- The PR description was corrected to distinguish the earlier completed SQLite/standard CI run from the new PostgreSQL validation, which is still in progress.
+
+This provides direct PostgreSQL-backed regression evidence for the tested endpoints, but not a complete route-by-route tenant-isolation review. Other tenant-owned routes and permission combinations remain to be inventoried and tested. PR #151 remains Draft and unmerged. No change was made to `main`.
