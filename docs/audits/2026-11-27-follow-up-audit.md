@@ -216,3 +216,21 @@ The two runs triggered for PR #151's updated head both completed successfully:
 - [Push run 45912825035](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45912825035): **success**, with the same test steps passed.
 
 This supersedes the earlier in-progress note above. The dedicated PostgreSQL tenant-isolation regression now has successful CI evidence on PR #151 head `c0c027030837f264e8ef247baba0116ffe903dc2`. This remains automated coverage of the specific tested API surface, not proof that every tenant-aware route or authorization combination has been reviewed.
+
+
+### Additional tenant-isolation cases and CI correction
+
+The endpoint inventory identified asset bulk update, CSV export and CSV import as tenant-sensitive routes not covered by the first PR #151 test version. Regression cases were added for:
+- rejecting a bulk update that includes another organization's asset ID;
+- ensuring CSV export does not disclose another organization's asset data;
+- ensuring CSV import creates records only in the authenticated organization's scope;
+- verifying the imported record is not visible to the other organization;
+- confirming audit events remain organization-scoped after import.
+
+The first run of these additional cases failed because the test supplied an unsupported asset status (`maintenance`); the API correctly rejected the invalid enum with HTTP 422 before tenant authorization was exercised. The test fixture was corrected to the supported `in_repair` value. This was a test-data defect, not evidence of an application authorization defect.
+
+Updated PR #151 head: `282c41041a43ef5e0e4277ef241d71d353303986`. Fresh ECC CI and PostgreSQL workflow runs were triggered:
+- [ECC CI run 45913092033](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092033): frontend build and shell validation passed; API tests and Docker build/Compose checks were still running when this note was written.
+- [PostgreSQL run 45913092041](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092041): queued/running; final result pending.
+
+The earlier PostgreSQL success on head `c0c0270` does not validate these newly added bulk/CSV cases. Do not mark the expanded tenant-isolation suite complete until the fresh runs for `282c410` finish successfully.
