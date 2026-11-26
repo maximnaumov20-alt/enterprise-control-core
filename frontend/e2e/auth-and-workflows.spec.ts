@@ -6,17 +6,10 @@ const adminEmail = process.env.ECC_ADMIN_EMAIL || "e2e-admin@example.test";
 const adminPassword = process.env.ECC_ADMIN_PASSWORD || "e2e-admin-password-123456";
 let adminTotpSecret = "";
 let lastUsedTotpCounter = -1;
+let setupRequest: APIRequestContext;
 
 function currentTotpCounter(): number {
   return Math.floor(Date.now() / 1000 / 30);
-}
-
-async function waitForFreshTotp(): Promise<string> {
-  while (currentTotpCounter() <= lastUsedTotpCounter) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  lastUsedTotpCounter = currentTotpCounter();
-  return totp(adminTotpSecret);
 }
 
 function decodeBase32(value: string): Buffer {
@@ -42,6 +35,14 @@ function totp(secret: string, instant = Date.now()): string {
   const offset = digest[digest.length - 1] & 0x0f;
   const binary = digest.readUInt32BE(offset) & 0x7fffffff;
   return String(binary % 1_000_000).padStart(6, "0");
+}
+
+async function waitForFreshTotp(): Promise<string> {
+  while (currentTotpCounter() <= lastUsedTotpCounter) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  lastUsedTotpCounter = currentTotpCounter();
+  return totp(adminTotpSecret);
 }
 
 async function rawPasswordLogin(request: APIRequestContext, email: string, password: string) {
@@ -70,24 +71,29 @@ async function adminToken(request: APIRequestContext): Promise<string> {
 }
 
 test.beforeAll(async () => {
-  const request = await playwrightRequest.newContext({ baseURL });
-  const initial = await rawPasswordLogin(request, adminEmail, adminPassword);
+  setupRequest = await playwrightRequest.newContext({ baseURL });
+  const initial = await rawPasswordLogin(setupRequest, adminEmail, adminPassword);
   expect(initial.access_token, "fresh E2E database should start with MFA disabled").toBeTruthy();
   const headers = { Authorization: "Bearer " + initial.access_token };
-  const statusResponse = await request.get(baseURL + "/api/v1/auth/mfa/status", { headers });
+  const statusResponse = await setupRequest.get(baseURL + "/api/v1/auth/mfa/status", { headers });
   expect(statusResponse.ok()).toBeTruthy();
   const status = await statusResponse.json() as { enabled: boolean };
   expect(status.enabled).toBeFalsy();
 
-  const enrollmentResponse = await request.post(baseURL + "/api/v1/auth/mfa/enrollment", { headers });
+  const enrollmentResponse = await setupRequest.post(baseURL + "/api/v1/auth/mfa/enrollment", { headers });
   expect(enrollmentResponse.ok()).toBeTruthy();
   const enrollment = await enrollmentResponse.json() as { secret: string };
   adminTotpSecret = enrollment.secret;
-  const confirmResponse = await request.post(baseURL + "/api/v1/auth/mfa/enrollment/confirm", {
+  const confirmResponse = await setupRequest.post(baseURL + "/api/v1/auth/mfa/enrollment/confirm", {
     headers,
     data: { code: totp(adminTotpSecret) },
   });
   expect(confirmResponse.ok(), "MFA enrollment failed: " + confirmResponse.status()).toBeTruthy();
+  lastUsedTotpCounter = currentTotpCounter();
+});
+
+test.afterAll(async () => {
+  await setupRequest?.dispose();
 });
 
 async function loginThroughUi(page: Page, email: string, password: string, secret?: string) {
@@ -98,7 +104,7 @@ async function loginThroughUi(page: Page, email: string, password: string, secre
 
   if (secret) {
     await expect(page.getByRole("heading", { name: "Подтверждение входа" })).toBeVisible();
-    if (secret) {\n      const code = await waitForFreshTotp();\n      await page.getByLabel("Код подтверждения").fill(code);\n    }
+    await page.getByLabel("Код подтверждения").fill(await waitForFreshTotp());
     await page.getByRole("button", { name: "Подтвердить и войти" }).click();
   }
   await expect(page.getByRole("heading", { name: "Оборудование" })).toBeVisible();
