@@ -245,3 +245,14 @@ The corrected expanded suite on PR #151 head `282c41041a43ef5e0e4277ef241d71d353
 - [ECC CI run 45913092033](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092033) was still running its API tests and PostgreSQL Compose smoke test when this addendum was written. Frontend build and shell validation had passed.
 
 The first expanded run's failure was confined to an invalid test enum value; the corrected run passed. This is not a confirmed application defect. The overall ECC CI result for the current head remains pending, and a complete route-by-route authorization review remains outstanding.
+
+
+### Final ECC CI result for expanded tenant-isolation cases
+
+The full ECC CI run for PR #151 head `282c41041a43ef5e0e4277ef241d71d353303986` completed successfully:
+
+- [ECC CI run 45913092033](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092033): `test`, `frontend-build`, `docker-build` and `shell-validation` all **success**. The API tests, migrations, frontend build, Docker image builds, trusted-proxy checks, PostgreSQL Compose smoke test, backup/restore regression checks and shell validations passed.
+- The separate `archive-recovery-evidence` job was **skipped**. The Docker job's recovery-drill evidence upload step passed; these are distinct workflow steps.
+- [PostgreSQL security regression run 45913092041](https://github.com/maximnaumov20-alt/enterprise-control-core/actions/runs/45913092041) also completed successfully, including the expanded tenant-isolation suite and expired MFA cleanup tests.
+
+These results apply to the exact PR #151 head above. The PR remains Draft and unmerged; the broader route-by-route authorization review and independent security assessment remain open.
