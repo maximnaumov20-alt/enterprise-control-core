@@ -97,7 +97,7 @@ test.beforeAll(async () => {
     adminAccessToken = body.access_token;
   }
 
-  viewerEmail = "viewer-" + Date.now() + "@example.test";
+  viewerEmail = "viewer-" + Date.now() + "@example.com";
   const viewerResponse = await setupRequest.post(baseURL + "/api/v1/users", {
     headers: { Authorization: "Bearer " + adminAccessToken },
     data: { email: viewerEmail, full_name: "E2E Viewer", password: viewerPassword, role: "viewer" },
