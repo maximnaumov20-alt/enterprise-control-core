@@ -264,7 +264,7 @@ def test_tenant_owned_resources_cannot_be_read_or_mutated_across_organizations(
         files={
             "file": (
                 "tenant-b-assets.csv",
-                "name,asset_tag,category\\nTenant B imported asset,TENANT-B-IMPORTED-01,Server\\n",
+                "name,asset_tag,category\nTenant B imported asset,TENANT-B-IMPORTED-01,Server\n",
                 "text/csv",
             )
         },
