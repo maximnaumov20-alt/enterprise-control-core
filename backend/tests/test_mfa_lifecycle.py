@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 import time
@@ -322,3 +323,70 @@ def test_recovery_code_regeneration_rotates_codes_and_revokes_sessions(client: T
     assert old_code not in new_codes
     assert regenerated.json()["sessions_revoked"] is True
     assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+
+def test_mfa_challenge_locks_after_five_invalid_attempts(client: TestClient):
+    token = login(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    confirmed = client.post(
+        "/api/v1/auth/mfa/enrollment/confirm",
+        headers=headers,
+        json={"code": totp_code(start["secret"])},
+    )
+    assert confirmed.status_code == 200
+    challenge_token = login(client).json()["challenge_token"]
+
+    for attempt in range(5):
+        response = client.post(
+            "/api/v1/auth/mfa/challenge/verify",
+            json={"challenge_token": challenge_token, "code": "not-a-code"},
+        )
+        assert response.status_code == 401, f"unexpected status on attempt {attempt + 1}"
+
+    with app.state.test_session_factory() as session:
+        challenge = session.scalar(select(MFAChallenge).where(
+            MFAChallenge.token_hash == hashlib.sha256(challenge_token.encode("utf-8")).hexdigest()
+        ))
+        assert challenge is not None
+        assert challenge.attempts == 5
+        assert challenge.consumed_at is None
+
+    locked = client.post(
+        "/api/v1/auth/mfa/challenge/verify",
+        json={"challenge_token": challenge_token, "code": "not-a-code"},
+    )
+    assert locked.status_code == 401
+    with app.state.test_session_factory() as session:
+        challenge = session.scalar(select(MFAChallenge).where(
+            MFAChallenge.token_hash == hashlib.sha256(challenge_token.encode("utf-8")).hexdigest()
+        ))
+        assert challenge is not None
+        assert challenge.attempts == 5
+
+
+def test_expired_mfa_challenge_cannot_issue_a_session(client: TestClient):
+    token = login(client).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    confirmed = client.post(
+        "/api/v1/auth/mfa/enrollment/confirm",
+        headers=headers,
+        json={"code": totp_code(start["secret"])},
+    )
+    assert confirmed.status_code == 200
+    challenge_token = login(client).json()["challenge_token"]
+
+    with app.state.test_session_factory() as session:
+        challenge = session.scalar(select(MFAChallenge).where(
+            MFAChallenge.token_hash == hashlib.sha256(challenge_token.encode("utf-8")).hexdigest()
+        ))
+        assert challenge is not None
+        challenge.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+
+    expired = client.post(
+        "/api/v1/auth/mfa/challenge/verify",
+        json={"challenge_token": challenge_token, "code": "not-a-code"},
+    )
+    assert expired.status_code == 401
+
