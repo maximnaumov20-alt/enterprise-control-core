@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      ECC_ADMIN_EMAIL: e2e-admin@example.test
+      ECC_ADMIN_EMAIL: e2e-admin@example.com
       ECC_ADMIN_PASSWORD: e2e-admin-password-123456
       ECC_E2E_BASE_URL: http://127.0.0.1:5173
     steps:
