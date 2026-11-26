@@ -1,8 +1,11 @@
 from collections.abc import Generator
+import os
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -18,61 +21,84 @@ from app.main import (
 )
 
 
-@pytest.fixture()
-def tenant_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+@pytest.fixture(params=["sqlite", "postgres"] if os.getenv("ECC_TEST_POSTGRES_URL") else ["sqlite"])
+def tenant_client(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[TestClient, None, None]:
     monkeypatch.setattr(main, "SECRET_KEY", "tenant-isolation-test-secret-key-over-32-bytes")
     monkeypatch.setattr(main, "login_rate_limiter", main.LoginRateLimiter(10, 60))
+    monkeypatch.setenv("ECC_MFA_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    testing_session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    Base.metadata.create_all(bind=engine)
-
-    with testing_session() as session:
-        first_org = Organization(name="Tenant Isolation Organization A")
-        second_org = Organization(name="Tenant Isolation Organization B")
-        session.add_all([first_org, second_org])
-        session.flush()
-
-        first_admin = User(
-            organization_id=first_org.id,
-            email="tenant-a-admin@example.com",
-            full_name="Tenant A Admin",
-            password_hash="test-only-not-used-for-authentication",
-            role=UserRole.admin,
+    schema = None
+    if request.param == "postgres":
+        database_url = os.environ["ECC_TEST_POSTGRES_URL"]
+        parsed = make_url(database_url)
+        if parsed.get_backend_name() != "postgresql" or parsed.database not in {"ecc_test", "test"}:
+            raise RuntimeError("Refusing to run tenant isolation tests outside the dedicated ECC PostgreSQL test database")
+        engine = create_engine(database_url, pool_size=5, max_overflow=5, pool_pre_ping=True)
+        schema = f"ecc_tenant_test_{uuid4().hex}"
+        with engine.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+        test_engine = engine.execution_options(schema_translate_map={None: schema})
+    else:
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
         )
-        second_admin = User(
-            organization_id=second_org.id,
-            email="tenant-b-admin@example.com",
-            full_name="Tenant B Admin",
-            password_hash="test-only-not-used-for-authentication",
-            role=UserRole.admin,
-        )
-        session.add_all([first_admin, second_admin])
-        session.commit()
+        test_engine = engine
 
-        tokens = {
-            "a": create_access_token(first_admin),
-            "b": create_access_token(second_admin),
-        }
-
-    def override_get_session():
-        with testing_session() as session:
-            yield session
-
-    app.dependency_overrides[get_session] = override_get_session
-    app.state.tenant_test_tokens = tokens
+    testing_session = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
     try:
-        with TestClient(app) as client:
-            client.headers.update({"Authorization": f"Bearer {tokens['a']}"})
-            yield client
+        Base.metadata.create_all(bind=test_engine)
+
+        with testing_session() as session:
+            first_org = Organization(name="Tenant Isolation Organization A")
+            second_org = Organization(name="Tenant Isolation Organization B")
+            session.add_all([first_org, second_org])
+            session.flush()
+
+            first_admin = User(
+                organization_id=first_org.id,
+                email="tenant-a-admin@example.com",
+                full_name="Tenant A Admin",
+                password_hash="test-only-not-used-for-authentication",
+                role=UserRole.admin,
+            )
+            second_admin = User(
+                organization_id=second_org.id,
+                email="tenant-b-admin@example.com",
+                full_name="Tenant B Admin",
+                password_hash="test-only-not-used-for-authentication",
+                role=UserRole.admin,
+            )
+            session.add_all([first_admin, second_admin])
+            session.commit()
+
+            tokens = {
+                "a": create_access_token(first_admin),
+                "b": create_access_token(second_admin),
+            }
+
+        def override_get_session():
+            with testing_session() as session:
+                yield session
+
+        app.dependency_overrides[get_session] = override_get_session
+        app.state.tenant_test_tokens = tokens
+        try:
+            with TestClient(app) as client:
+                client.headers.update({"Authorization": f"Bearer {tokens['a']}"})
+                yield client
+        finally:
+            app.dependency_overrides.clear()
+            app.state.tenant_test_tokens = {}
     finally:
-        app.dependency_overrides.clear()
-        app.state.tenant_test_tokens = {}
-        Base.metadata.drop_all(bind=engine)
+        Base.metadata.drop_all(bind=test_engine)
+        if schema is not None:
+            with engine.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         engine.dispose()
 
 
