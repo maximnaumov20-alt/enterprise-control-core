@@ -17,13 +17,17 @@ The supplied units assume:
 
 - ECC is installed at `/opt/enterprise-control-core`;
 - the API is running as the Compose service `api`;
-- a host account `ecc-backup` can access the Docker socket through the `docker` group.
+- a dedicated system account `ecc-cleanup` exists and is **not** a member of the `docker` group;
+- `sudo` is installed and the exact command below is authorized by a root-owned sudoers file.
 
-Docker socket access is privileged. Use a dedicated host account and follow the host's Docker access policy; do not grant this access to an untrusted account.
+The service invokes Docker through a command-scoped sudo rule. It does not grant the service account general Docker socket access or membership in the privileged `docker` group. Keep the sudoers file root-owned and mode `0440`; validate it with `visudo -cf`.
 
 Install and enable:
 
 ```sh
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin ecc-cleanup
+sudo install -o root -g root -m 0440 ops/sudoers.d/ecc-auth-cleanup /etc/sudoers.d/ecc-auth-cleanup
+sudo visudo -cf /etc/sudoers.d/ecc-auth-cleanup
 sudo install -m 0644 ops/systemd/ecc-auth-cleanup.service /etc/systemd/system/
 sudo install -m 0644 ops/systemd/ecc-auth-cleanup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
