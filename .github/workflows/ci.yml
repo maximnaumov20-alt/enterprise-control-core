@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: .
+      ECC_MFA_ALLOW_LOCAL_RATELIMIT: "true" # isolated single-process test runner only
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
