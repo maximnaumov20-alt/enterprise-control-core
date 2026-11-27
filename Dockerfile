@@ -5,6 +5,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Apply Debian security updates for the runtime compression library.
+RUN apt-get update \
+    && apt-get install --no-install-recommends --only-upgrade -y libzstd1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY backend/requirements-runtime.lock ./requirements.lock
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements.lock
 

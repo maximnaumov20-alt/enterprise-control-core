@@ -1,4 +1,6 @@
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,8 +11,8 @@ from sqlalchemy.pool import StaticPool
 
 from app import main
 from app.main import (
-    Base, Organization, User, UserRole, app, create_access_token, get_session,
-    password_hash,
+    ACCESS_TOKEN_MINUTES, AuthSession, Base, Organization, User, UserRole, app,
+    create_access_token, get_session, password_hash,
 )
 
 
@@ -56,8 +58,27 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
             ),
         }
         session.add_all(users.values())
+        session.flush()
+        now = datetime.now(timezone.utc)
+        auth_sessions = {
+            name: AuthSession(
+                id=str(uuid4()),
+                organization_id=user.organization_id,
+                user_id=user.id,
+                token_version=user.token_version,
+                created_at=now,
+                expires_at=now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
+                last_seen_at=now,
+                revoked_at=None,
+            )
+            for name, user in users.items()
+        }
+        session.add_all(auth_sessions.values())
         session.commit()
-        tokens = {name: create_access_token(user) for name, user in users.items()}
+        tokens = {
+            name: create_access_token(user, auth_sessions[name].id)
+            for name, user in users.items()
+        }
 
     def override_get_session():
         with TestingSessionLocal() as session:
@@ -78,6 +99,26 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
 
 def use_role(client: TestClient, role: str) -> None:
     client.headers.update({"Authorization": f"Bearer {client.app.state.test_tokens[role]}"})
+
+
+def test_access_token_without_session_id_is_rejected(client: TestClient) -> None:
+    valid_token = client.app.state.test_tokens["admin"]
+    claims = main.jwt.decode(
+        valid_token,
+        main.SECRET_KEY,
+        algorithms=["HS256"],
+        issuer="ecc-api",
+        audience="ecc-client",
+    )
+    claims.pop("sid", None)
+    legacy_token = main.jwt.encode(claims, main.SECRET_KEY, algorithm="HS256")
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {legacy_token}"},
+    )
+
+    assert response.status_code == 401
 
 
 def test_health_endpoint(client: TestClient) -> None:

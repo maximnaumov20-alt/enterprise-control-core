@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from contextlib import asynccontextmanager
 import io
 import os
 import threading
@@ -646,9 +647,11 @@ class UserRead(BaseModel):
 
 
 class TokenRead(BaseModel):
-    access_token: str
+    access_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
+    mfa_required: bool = False
+    challenge_token: str | None = None
 
 
 class AuthSessionRead(BaseModel):
@@ -673,12 +676,14 @@ def get_session():
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
-def create_access_token(user: User, session_id: str | None = None) -> str:
+def create_access_token(user: User, session_id: str) -> str:
     if not SECRET_KEY:
         raise HTTPException(
             status_code=503,
             detail="Authentication is not configured: set ECC_SECRET_KEY",
         )
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("A non-empty authentication session ID is required")
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
@@ -688,9 +693,8 @@ def create_access_token(user: User, session_id: str | None = None) -> str:
         "ver": user.token_version,
         "iss": "ecc-api",
         "aud": "ecc-client",
+        "sid": session_id,
     }
-    if session_id is not None:
-        payload["sid"] = session_id
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
@@ -718,35 +722,34 @@ def get_current_user(
         user_id = int(payload["sub"])
         token_version = int(payload["ver"])
         session_id = payload.get("sid")
-        if session_id is not None and not isinstance(session_id, str):
+        if not isinstance(session_id, str) or not session_id:
             raise unauthorized
     except (jwt.InvalidTokenError, KeyError, ValueError, TypeError):
         raise unauthorized
     user = session.get(User, user_id)
     if user is None or not user.is_active or user.token_version != token_version:
         raise unauthorized
-    if session_id is not None:
-        auth_session = session.get(AuthSession, session_id)
-        now = datetime.now(timezone.utc)
-        expires_at = auth_session.expires_at if auth_session is not None else now
-        last_seen_at = auth_session.last_seen_at if auth_session is not None else now
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if last_seen_at.tzinfo is None:
-            last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
-        if (
-            auth_session is None
-            or auth_session.user_id != user.id
-            or auth_session.organization_id != user.organization_id
-            or auth_session.token_version != token_version
-            or auth_session.revoked_at is not None
-            or expires_at <= now
-        ):
-            raise unauthorized
-        user.current_auth_session_id = auth_session.id
-        if (now - last_seen_at).total_seconds() >= 300:
-            auth_session.last_seen_at = now
-            session.commit()
+    auth_session = session.get(AuthSession, session_id)
+    now = datetime.now(timezone.utc)
+    expires_at = auth_session.expires_at if auth_session is not None else now
+    last_seen_at = auth_session.last_seen_at if auth_session is not None else now
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if last_seen_at.tzinfo is None:
+        last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+    if (
+        auth_session is None
+        or auth_session.user_id != user.id
+        or auth_session.organization_id != user.organization_id
+        or auth_session.token_version != token_version
+        or auth_session.revoked_at is not None
+        or expires_at <= now
+    ):
+        raise unauthorized
+    user.current_auth_session_id = auth_session.id
+    if (now - last_seen_at).total_seconds() >= 300:
+        auth_session.last_seen_at = now
+        session.commit()
     return user
 
 
@@ -779,10 +782,21 @@ def record_audit(
     ))
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Validate active and previous MFA keys before serving any requests.
+    # Import locally to avoid the app <-> MFA router import cycle.
+    from app.mfa_crypto import MFAEncryptionKeyring
+
+    MFAEncryptionKeyring.from_environment(os.environ)
+    yield
+
+
 app = FastAPI(
     title="Enterprise Control Center API",
     version="0.2.0",
     description="Early-development API for organization-scoped IT asset inventory.",
+    lifespan=lifespan,
 )
 
 allowed_origins = [
@@ -870,6 +884,15 @@ def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    from app.mfa_routes import issue_mfa_challenge
+    challenge = issue_mfa_challenge(session, user)
+    if challenge is not None:
+        challenge_token, challenge_expires_in = challenge
+        return TokenRead(
+            access_token=None, mfa_required=True,
+            challenge_token=challenge_token, expires_in=challenge_expires_in,
+        )
+
     now = datetime.now(timezone.utc)
     auth_session = AuthSession(
         id=str(uuid4()),
@@ -2097,3 +2120,8 @@ def list_audit_events(
         }
         for event in events
     ]
+
+# Import MFA tables after Base and core models are defined so Alembic sees them.
+from app.mfa_models import MFAChallenge, MFAFactor, MFARecoveryCode  # noqa: E402
+from app.mfa_routes import router as mfa_router  # noqa: E402
+app.include_router(mfa_router)

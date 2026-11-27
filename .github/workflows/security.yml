@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, test/mfa-e2e-cleanup-hardening]
   schedule:
     - cron: "23 6 * * 1"
   workflow_dispatch:
@@ -66,7 +66,7 @@ jobs:
       - name: Build frontend image
         run: docker build --tag ecc-frontend:security ./frontend
 
-      - name: Scan API image for unfixed critical vulnerabilities
+      - name: Scan API image for unfixed high and critical vulnerabilities
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -74,11 +74,11 @@ jobs:
             aquasec/trivy:0.58.2 image \
             --scanners vuln \
             --ignore-unfixed \
-            --severity CRITICAL \
+            --severity HIGH,CRITICAL \
             --exit-code 1 \
             ecc-api:security
 
-      - name: Scan frontend image for unfixed critical vulnerabilities
+      - name: Scan frontend image for unfixed high and critical vulnerabilities
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
@@ -86,7 +86,7 @@ jobs:
             aquasec/trivy:0.58.2 image \
             --scanners vuln \
             --ignore-unfixed \
-            --severity CRITICAL \
+            --severity HIGH,CRITICAL \
             --exit-code 1 \
             ecc-frontend:security
 
