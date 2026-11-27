@@ -244,8 +244,10 @@ export const api = {
       body: new URLSearchParams({ username: email, password })
     }),
   mfaStatus: () => request<MFAStatus>("/api/v1/auth/mfa/status"),
-  beginMfaEnrollment: () =>
-    request<MFAEnrollment>("/api/v1/auth/mfa/enrollment", { method: "POST" }),
+  beginMfaEnrollment: (current_password: string) =>
+    request<MFAEnrollment>("/api/v1/auth/mfa/enrollment", {
+      method: "POST", body: JSON.stringify({ current_password })
+    }),
   confirmMfaEnrollment: (code: string) =>
     request<MFARecoveryCodesResponse>("/api/v1/auth/mfa/enrollment/confirm", {
       method: "POST", body: JSON.stringify({ code })
