@@ -403,9 +403,26 @@ def disable_mfa(
         if not used_recovery_code:
             raise HTTPException(status_code=400, detail="Invalid authenticator or recovery code")
     now = _now()
-    factor.status = "disabled"
-    factor.pending_expires_at = None
-    factor.updated_at = now
+    conditions = [
+        MFAFactor.id == factor.id,
+        MFAFactor.organization_id == user.organization_id,
+        MFAFactor.user_id == user.id,
+        MFAFactor.status == "enabled",
+    ]
+    values = {"status": "disabled", "pending_expires_at": None, "updated_at": now}
+    if not used_recovery_code:
+        conditions.append(or_(
+            MFAFactor.last_used_counter.is_(None),
+            MFAFactor.last_used_counter < counter,
+        ))
+        values["last_used_counter"] = counter
+    transition = session.execute(
+        update(MFAFactor).where(*conditions).values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    if transition.rowcount != 1:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="MFA state changed; authenticate again")
     user.token_version += 1
     revoked = session.execute(update(AuthSession).where(
         AuthSession.organization_id == user.organization_id,
