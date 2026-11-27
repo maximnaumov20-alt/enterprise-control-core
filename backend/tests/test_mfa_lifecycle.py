@@ -29,6 +29,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
     monkeypatch.setenv("ECC_MFA_ENCRYPTION_KEY", key)
     monkeypatch.setattr(main, "redis_client", None)
     monkeypatch.setattr(mfa_routes, "mfa_rate_limiter", main.LoginRateLimiter(20, 60))
+    monkeypatch.setattr(mfa_routes, "MFA_ALLOW_LOCAL_RATELIMIT", True)
     test_engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     testing_session = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
     Base.metadata.create_all(bind=test_engine)
@@ -66,10 +67,18 @@ def login(client: TestClient):
     })
 
 
+def begin_enrollment(client: TestClient, headers: dict[str, str], current_password: str = "correct-password-123"):
+    return client.post(
+        "/api/v1/auth/mfa/enrollment",
+        headers=headers,
+        json={"current_password": current_password},
+    )
+
+
 def test_enrollment_requires_confirmation_and_returns_recovery_codes_once(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers)
+    start = begin_enrollment(client, headers)
     assert start.status_code == 200
     secret = start.json()["secret"]
     assert start.json()["status"] == "pending"
@@ -94,7 +103,7 @@ def test_enrollment_requires_confirmation_and_returns_recovery_codes_once(client
 def test_password_login_does_not_issue_access_token_when_mfa_enabled(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     client.post("/api/v1/auth/mfa/enrollment/confirm", headers=headers, json={"code": totp_code(start["secret"])})
     response = login(client)
     assert response.status_code == 200
@@ -107,7 +116,7 @@ def test_password_login_does_not_issue_access_token_when_mfa_enabled(client: Tes
 def test_challenge_verification_issues_session_and_rejects_replay(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     client.post("/api/v1/auth/mfa/enrollment/confirm", headers=headers, json={"code": totp_code(start["secret"])})
     challenge = login(client).json()["challenge_token"]
     code = next_totp_code(start["secret"])
@@ -131,7 +140,7 @@ def test_challenge_verification_issues_session_and_rejects_replay(client: TestCl
 def test_recovery_code_is_single_use(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     codes = client.post(
         "/api/v1/auth/mfa/enrollment/confirm", headers=headers,
         json={"code": totp_code(start["secret"])},
@@ -152,7 +161,7 @@ def test_recovery_code_is_single_use(client: TestClient):
 def test_disabling_mfa_revokes_existing_sessions(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     confirmed = client.post(
         "/api/v1/auth/mfa/enrollment/confirm",
         headers=headers,
@@ -183,7 +192,7 @@ def test_disabling_mfa_revokes_existing_sessions(client: TestClient):
 def test_disabling_mfa_atomically_consumes_fresh_totp_counter(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     confirmed = client.post(
         "/api/v1/auth/mfa/enrollment/confirm",
         headers=headers,
@@ -228,7 +237,7 @@ def test_enabling_mfa_revokes_existing_sessions_and_audits(client: TestClient):
     first_token = login(client).json()["access_token"]
     second_token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {first_token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     confirmed = client.post(
         "/api/v1/auth/mfa/enrollment/confirm",
         headers=headers,
@@ -259,7 +268,7 @@ def test_enabling_mfa_revokes_existing_sessions_and_audits(client: TestClient):
 def test_recovery_login_revokes_other_sessions_and_has_distinct_audit(client: TestClient):
     initial = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {initial}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     codes = client.post(
         "/api/v1/auth/mfa/enrollment/confirm",
         headers=headers, json={"code": totp_code(start["secret"])},
@@ -296,7 +305,7 @@ def test_recovery_login_revokes_other_sessions_and_has_distinct_audit(client: Te
 def test_recovery_code_regeneration_rotates_codes_and_revokes_sessions(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     confirmed = client.post(
         "/api/v1/auth/mfa/enrollment/confirm",
         headers=headers, json={"code": totp_code(start["secret"])},
@@ -327,7 +336,7 @@ def test_recovery_code_regeneration_rotates_codes_and_revokes_sessions(client: T
 def test_mfa_challenge_locks_after_five_invalid_attempts(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     confirmed = client.post(
         "/api/v1/auth/mfa/enrollment/confirm",
         headers=headers,
@@ -367,7 +376,7 @@ def test_mfa_challenge_locks_after_five_invalid_attempts(client: TestClient):
 def test_expired_mfa_challenge_cannot_issue_a_session(client: TestClient):
     token = login(client).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
-    start = client.post("/api/v1/auth/mfa/enrollment", headers=headers).json()
+    start = begin_enrollment(client, headers).json()
     confirmed = client.post(
         "/api/v1/auth/mfa/enrollment/confirm",
         headers=headers,
