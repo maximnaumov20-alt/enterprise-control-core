@@ -11,7 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import main
+from app import main, mfa_routes
 from app.main import (
     AuthSession,
     Base,
@@ -21,6 +21,7 @@ from app.main import (
     app,
     create_access_token,
     get_session,
+    password_hash,
 )
 
 
@@ -31,6 +32,8 @@ def tenant_client(
 ) -> Generator[TestClient, None, None]:
     monkeypatch.setattr(main, "SECRET_KEY", "tenant-isolation-test-secret-key-over-32-bytes")
     monkeypatch.setattr(main, "login_rate_limiter", main.LoginRateLimiter(10, 60))
+    monkeypatch.setattr(mfa_routes, "mfa_rate_limiter", main.LoginRateLimiter(10, 60))
+    monkeypatch.setattr(mfa_routes, "MFA_ALLOW_LOCAL_RATELIMIT", True)
     monkeypatch.setenv("ECC_MFA_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
     schema = None
@@ -66,7 +69,7 @@ def tenant_client(
                 organization_id=first_org.id,
                 email="tenant-a-admin@example.com",
                 full_name="Tenant A Admin",
-                password_hash="test-only-not-used-for-authentication",
+                password_hash=password_hash.hash("tenant-isolation-test-password"),
                 role=UserRole.admin,
             )
             second_admin = User(
@@ -390,7 +393,7 @@ def test_mfa_enrollment_state_is_isolated_between_organizations(
         "recovery_codes_remaining": 0,
     }
 
-    tenant_a_enrollment = client.post("/api/v1/auth/mfa/enrollment")
+    tenant_a_enrollment = client.post("/api/v1/auth/mfa/enrollment", json={"current_password": "tenant-isolation-test-password"})
     assert_status(tenant_a_enrollment, 200)
     tenant_a_payload = tenant_a_enrollment.json()
     assert tenant_a_payload["status"] == "pending"
@@ -407,7 +410,7 @@ def test_mfa_enrollment_state_is_isolated_between_organizations(
         "recovery_codes_remaining": 0,
     }
 
-    tenant_b_enrollment = client.post("/api/v1/auth/mfa/enrollment")
+    tenant_b_enrollment = client.post("/api/v1/auth/mfa/enrollment", json={"current_password": "tenant-isolation-test-password"})
     assert_status(tenant_b_enrollment, 200)
     tenant_b_payload = tenant_b_enrollment.json()
     assert tenant_b_payload["status"] == "pending"
