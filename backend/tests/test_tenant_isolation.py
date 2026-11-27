@@ -2,6 +2,7 @@ from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 import os
 from uuid import uuid4
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -393,7 +394,7 @@ def test_mfa_enrollment_state_is_isolated_between_organizations(
     assert_status(tenant_a_enrollment, 200)
     tenant_a_payload = tenant_a_enrollment.json()
     assert tenant_a_payload["status"] == "pending"
-    assert "tenant-a-admin@example.com" in tenant_a_payload["provisioning_uri"]
+    assert "tenant-a-admin@example.com" in unquote(tenant_a_payload["provisioning_uri"])
 
     # A second organization must not observe or reuse the first organization's
     # pending factor, even though both users have administrator privileges.
@@ -410,7 +411,7 @@ def test_mfa_enrollment_state_is_isolated_between_organizations(
     assert_status(tenant_b_enrollment, 200)
     tenant_b_payload = tenant_b_enrollment.json()
     assert tenant_b_payload["status"] == "pending"
-    assert "tenant-b-admin@example.com" in tenant_b_payload["provisioning_uri"]
+    assert "tenant-b-admin@example.com" in unquote(tenant_b_payload["provisioning_uri"])
     assert tenant_b_payload["secret"] != tenant_a_payload["secret"]
 
     authenticate_as(client, "a")
