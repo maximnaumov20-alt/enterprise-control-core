@@ -150,6 +150,35 @@ def _consume_recovery_code(session, user: User, submitted: str) -> bool:
             return result.rowcount == 1
     return False
 
+def _disable_mfa_factor_once(
+    session,
+    *,
+    factor_id: str,
+    organization_id: int,
+    user_id: int,
+    now: datetime,
+    counter: int | None,
+) -> bool:
+    """Atomically disable an enabled factor and consume a fresh TOTP counter."""
+    conditions = [
+        MFAFactor.id == factor_id,
+        MFAFactor.organization_id == organization_id,
+        MFAFactor.user_id == user_id,
+        MFAFactor.status == "enabled",
+    ]
+    values = {"status": "disabled", "pending_expires_at": None, "updated_at": now}
+    if counter is not None:
+        conditions.append(or_(
+            MFAFactor.last_used_counter.is_(None),
+            MFAFactor.last_used_counter < counter,
+        ))
+        values["last_used_counter"] = counter
+    result = session.execute(
+        update(MFAFactor).where(*conditions).values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount == 1
+
 
 @router.get("/status")
 def mfa_status(session: SessionDep, user: CurrentUser):
@@ -403,24 +432,14 @@ def disable_mfa(
         if not used_recovery_code:
             raise HTTPException(status_code=400, detail="Invalid authenticator or recovery code")
     now = _now()
-    conditions = [
-        MFAFactor.id == factor.id,
-        MFAFactor.organization_id == user.organization_id,
-        MFAFactor.user_id == user.id,
-        MFAFactor.status == "enabled",
-    ]
-    values = {"status": "disabled", "pending_expires_at": None, "updated_at": now}
-    if not used_recovery_code:
-        conditions.append(or_(
-            MFAFactor.last_used_counter.is_(None),
-            MFAFactor.last_used_counter < counter,
-        ))
-        values["last_used_counter"] = counter
-    transition = session.execute(
-        update(MFAFactor).where(*conditions).values(**values)
-        .execution_options(synchronize_session=False)
-    )
-    if transition.rowcount != 1:
+    if not _disable_mfa_factor_once(
+        session,
+        factor_id=factor.id,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        now=now,
+        counter=None if used_recovery_code else counter,
+    ):
         session.rollback()
         raise HTTPException(status_code=409, detail="MFA state changed; authenticate again")
     user.token_version += 1
