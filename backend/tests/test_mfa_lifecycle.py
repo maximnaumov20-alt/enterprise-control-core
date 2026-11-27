@@ -64,7 +64,11 @@ def login(client: TestClient):
     })
 
 
-def begin_enrollment(client: TestClient, headers: dict[str, str], current_password: str = "correct-password-123"):
+def begin_enrollment(
+    client: TestClient,
+    headers: dict[str, str],
+    current_password: str = "correct-password-123",
+):
     return client.post(
         "/api/v1/auth/mfa/enrollment",
         headers=headers,
