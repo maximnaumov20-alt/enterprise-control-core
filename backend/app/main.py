@@ -676,12 +676,14 @@ def get_session():
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
-def create_access_token(user: User, session_id: str | None = None) -> str:
+def create_access_token(user: User, session_id: str) -> str:
     if not SECRET_KEY:
         raise HTTPException(
             status_code=503,
             detail="Authentication is not configured: set ECC_SECRET_KEY",
         )
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("A non-empty authentication session ID is required")
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
@@ -691,9 +693,8 @@ def create_access_token(user: User, session_id: str | None = None) -> str:
         "ver": user.token_version,
         "iss": "ecc-api",
         "aud": "ecc-client",
+        "sid": session_id,
     }
-    if session_id is not None:
-        payload["sid"] = session_id
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
 
@@ -721,35 +722,34 @@ def get_current_user(
         user_id = int(payload["sub"])
         token_version = int(payload["ver"])
         session_id = payload.get("sid")
-        if session_id is not None and not isinstance(session_id, str):
+        if not isinstance(session_id, str) or not session_id:
             raise unauthorized
     except (jwt.InvalidTokenError, KeyError, ValueError, TypeError):
         raise unauthorized
     user = session.get(User, user_id)
     if user is None or not user.is_active or user.token_version != token_version:
         raise unauthorized
-    if session_id is not None:
-        auth_session = session.get(AuthSession, session_id)
-        now = datetime.now(timezone.utc)
-        expires_at = auth_session.expires_at if auth_session is not None else now
-        last_seen_at = auth_session.last_seen_at if auth_session is not None else now
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if last_seen_at.tzinfo is None:
-            last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
-        if (
-            auth_session is None
-            or auth_session.user_id != user.id
-            or auth_session.organization_id != user.organization_id
-            or auth_session.token_version != token_version
-            or auth_session.revoked_at is not None
-            or expires_at <= now
-        ):
-            raise unauthorized
-        user.current_auth_session_id = auth_session.id
-        if (now - last_seen_at).total_seconds() >= 300:
-            auth_session.last_seen_at = now
-            session.commit()
+    auth_session = session.get(AuthSession, session_id)
+    now = datetime.now(timezone.utc)
+    expires_at = auth_session.expires_at if auth_session is not None else now
+    last_seen_at = auth_session.last_seen_at if auth_session is not None else now
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if last_seen_at.tzinfo is None:
+        last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+    if (
+        auth_session is None
+        or auth_session.user_id != user.id
+        or auth_session.organization_id != user.organization_id
+        or auth_session.token_version != token_version
+        or auth_session.revoked_at is not None
+        or expires_at <= now
+    ):
+        raise unauthorized
+    user.current_auth_session_id = auth_session.id
+    if (now - last_seen_at).total_seconds() >= 300:
+        auth_session.last_seen_at = now
+        session.commit()
     return user
 
 
