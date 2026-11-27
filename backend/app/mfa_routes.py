@@ -79,6 +79,10 @@ def issue_mfa_challenge(session, user: User) -> tuple[str, int] | None:
     return _issue_challenge(session, user) if enabled else None
 
 
+class EnrollmentStart(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+
+
 class EnrollmentConfirm(BaseModel):
     code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
 
@@ -163,7 +167,14 @@ def mfa_status(session: SessionDep, user: CurrentUser):
 
 
 @router.post("/enrollment")
-def begin_enrollment(session: SessionDep, user: CurrentUser):
+def begin_enrollment(
+    payload: EnrollmentStart, request: Request, session: SessionDep, user: CurrentUser
+):
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    _enforce_mfa_rate_limit(f"ecc:auth:mfa:enroll-start:{user.id}:{client_ip}")
+    if not password_hash.verify(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
     factor = _factor_for_user(session, user)
     now = _now()
     if factor is not None and factor.status == "enabled":
