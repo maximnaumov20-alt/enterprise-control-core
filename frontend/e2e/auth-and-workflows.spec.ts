@@ -110,7 +110,10 @@ test.beforeAll(async () => {
   const status = await statusResponse.json() as { enabled: boolean };
   expect(status.enabled).toBeFalsy();
 
-  const enrollmentResponse = await setupRequest.post(baseURL + "/api/v1/auth/mfa/enrollment", { headers });
+  const enrollmentResponse = await setupRequest.post(baseURL + "/api/v1/auth/mfa/enrollment", {
+    headers,
+    data: { current_password: adminPassword },
+  });
   expect(enrollmentResponse.ok()).toBeTruthy();
   const enrollment = await enrollmentResponse.json() as { secret: string };
   adminTotpSecret = enrollment.secret;
