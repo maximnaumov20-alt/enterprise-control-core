@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from app.main import Base, Organization, User, UserRole, password_hash
 from app.mfa import generate_totp_secret, totp_code, verify_totp
 from app.mfa_models import MFAFactor
+from app.mfa_routes import _disable_mfa_factor_once
 
 
 def test_concurrent_totp_counter_claim_has_exactly_one_winner():
@@ -93,6 +94,36 @@ def test_concurrent_totp_counter_claim_has_exactly_one_winner():
             with SessionLocal() as session:
                 factor = session.get(MFAFactor, factor_id)
                 assert factor is not None
+                assert factor.last_used_counter == accepted_counter
+
+            # Reset the fixture counter to model two requests that both validated
+            # the same fresh code before either request reached the database update.
+            with SessionLocal.begin() as session:
+                session.execute(
+                    update(MFAFactor)
+                    .where(MFAFactor.id == factor_id)
+                    .values(status="enabled", last_used_counter=None)
+                )
+
+            def disable_factor() -> bool:
+                with SessionLocal.begin() as session:
+                    return _disable_mfa_factor_once(
+                        session,
+                        factor_id=factor_id,
+                        organization_id=organization.id,
+                        user_id=user.id,
+                        now=now,
+                        counter=accepted_counter,
+                    )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                disable_outcomes = list(pool.map(lambda _: disable_factor(), range(2)))
+
+            assert sorted(disable_outcomes) == [False, True]
+            with SessionLocal() as session:
+                factor = session.get(MFAFactor, factor_id)
+                assert factor is not None
+                assert factor.status == "disabled"
                 assert factor.last_used_counter == accepted_counter
         finally:
             Base.metadata.drop_all(bind=isolated_engine)
