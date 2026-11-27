@@ -1,16 +1,16 @@
-name: MFA PostgreSQL concurrency tests
+name: PostgreSQL security regression tests
 
 on:
   pull_request:
-    branches: [main, feat/mfa-frontend-flow]
+    branches: [main, feat/mfa-frontend-flow, test/mfa-e2e-cleanup-hardening]
   push:
-    branches: [main]
+    branches: [main, test/tenant-isolation-regression]
 
 permissions:
   contents: read
 
 jobs:
-  postgres-mfa-concurrency:
+  postgres-security-regressions:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -43,7 +43,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install --require-hashes -r backend/requirements-dev.lock
           pip check
-      - name: Run PostgreSQL TOTP concurrency test
-        run: pytest -q backend/tests/test_mfa_postgres_concurrency.py
+      - name: Run PostgreSQL MFA and tenant-isolation regressions
+        run: pytest -q backend/tests/test_mfa_postgres_concurrency.py backend/tests/test_tenant_isolation.py
       - name: Run expired MFA artifact cleanup tests
         run: pytest -q backend/tests/test_mfa_cleanup.py
