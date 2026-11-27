@@ -1,4 +1,6 @@
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +10,8 @@ from sqlalchemy.pool import StaticPool
 
 from app import main
 from app.main import (
+    ACCESS_TOKEN_MINUTES,
+    AuthSession,
     Base,
     Organization,
     User,
@@ -59,8 +63,27 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
             ),
         }
         session.add_all(users.values())
+        session.flush()
+        now = datetime.now(timezone.utc)
+        auth_sessions = {
+            role: AuthSession(
+                id=str(uuid4()),
+                organization_id=user.organization_id,
+                user_id=user.id,
+                token_version=user.token_version,
+                created_at=now,
+                expires_at=now + timedelta(minutes=ACCESS_TOKEN_MINUTES),
+                last_seen_at=now,
+                revoked_at=None,
+            )
+            for role, user in users.items()
+        }
+        session.add_all(auth_sessions.values())
         session.commit()
-        tokens = {role: create_access_token(user) for role, user in users.items()}
+        tokens = {
+            role: create_access_token(user, auth_sessions[role].id)
+            for role, user in users.items()
+        }
 
     def override_get_session():
         with testing_session() as session:
