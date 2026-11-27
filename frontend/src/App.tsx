@@ -910,7 +910,7 @@ export default function App() {
           </div>
           {!mfaStatus ? <div className="empty">Загрузка состояния MFA...</div> : !mfaStatus.enabled && !mfaEnrollment ? <div className="mfa-actions">
             <p>Для начала подключения подтвердите личность текущим паролем. После подтверждения MFA текущие сеансы будут завершены, и потребуется повторный вход.</p>
-            <form className="mfa-enrollment-start" onSubmit={startMfaEnrollment}>
+            <form className="mfa-enrollment-start mfa-regenerate-form" onSubmit={startMfaEnrollment}>
               <label>Пароль для подключения MFA<input type="password" autoComplete="current-password" required value={mfaEnrollmentPassword} onChange={e => setMfaEnrollmentPassword(e.target.value)} /></label>
               <button type="submit" className="primary" disabled={mfaActionLoading || !mfaEnrollmentPassword}>{mfaActionLoading ? "Проверка..." : "Подключить MFA"}</button>
             </form>
