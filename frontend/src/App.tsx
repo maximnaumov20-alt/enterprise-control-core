@@ -74,6 +74,7 @@ export default function App() {
   const [mfaStatus, setMfaStatus] = useState<MFAStatus | null>(null);
   const [mfaEnrollment, setMfaEnrollment] = useState<MFAEnrollment | null>(null);
   const [mfaSetupCode, setMfaSetupCode] = useState("");
+  const [mfaEnrollmentPassword, setMfaEnrollmentPassword] = useState("");
   const [mfaCurrentPassword, setMfaCurrentPassword] = useState("");
   const [mfaRegenerateCode, setMfaRegenerateCode] = useState("");
   const [mfaActionLoading, setMfaActionLoading] = useState(false);
@@ -175,17 +176,21 @@ export default function App() {
     } finally { setLoginLoading(false); }
   }
 
-  async function startMfaEnrollment() {
+  async function startMfaEnrollment(event: FormEvent) {
+    event.preventDefault();
     setMfaActionLoading(true);
     setError("");
     try {
-      const result = await api.beginMfaEnrollment();
+      const result = await api.beginMfaEnrollment(mfaEnrollmentPassword);
       setMfaEnrollment(result);
       setMfaStatus({ status: "pending", enabled: false, recovery_codes_remaining: 0 });
       setMfaSetupCode("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось начать подключение MFA");
-    } finally { setMfaActionLoading(false); }
+    } finally {
+      setMfaEnrollmentPassword("");
+      setMfaActionLoading(false);
+    }
   }
 
   async function confirmMfaEnrollment(event: FormEvent) {
@@ -904,8 +909,11 @@ export default function App() {
             <span className={mfaStatus?.enabled ? "status status-active" : "status status-retired"}>{mfaStatus?.enabled ? "Включена" : mfaStatus?.status === "pending" ? "Ожидает подтверждения" : "Выключена"}</span>
           </div>
           {!mfaStatus ? <div className="empty">Загрузка состояния MFA...</div> : !mfaStatus.enabled && !mfaEnrollment ? <div className="mfa-actions">
-            <p>Подключите приложение-аутентификатор. После подтверждения текущие сеансы будут завершены, и потребуется повторный вход.</p>
-            <button type="button" className="primary" disabled={mfaActionLoading} onClick={() => void startMfaEnrollment()}>{mfaActionLoading ? "Подготовка..." : "Подключить MFA"}</button>
+            <p>Для начала подключения подтвердите личность текущим паролем. После подтверждения MFA текущие сеансы будут завершены, и потребуется повторный вход.</p>
+            <form className="mfa-enrollment-start" onSubmit={startMfaEnrollment}>
+              <label>Пароль для подключения MFA<input type="password" autoComplete="current-password" required value={mfaEnrollmentPassword} onChange={e => setMfaEnrollmentPassword(e.target.value)} /></label>
+              <button type="submit" className="primary" disabled={mfaActionLoading || !mfaEnrollmentPassword}>{mfaActionLoading ? "Проверка..." : "Подключить MFA"}</button>
+            </form>
           </div> : null}
           {mfaEnrollment && <div className="mfa-enrollment">
             <div className="mfa-qr-wrap"><QRCodeSVG value={mfaEnrollment.provisioning_uri} size={208} level="M" marginSize={4} title="QR-код для приложения-аутентификатора" /></div>
